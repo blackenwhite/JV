@@ -1,0 +1,21 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'JV'
+
+include ':plain-java-app'
+include ':spring-service'
+
+project(':plain-java-app').projectDir = file('projects/plain-java-app')
+project(':spring-service').projectDir = file('projects/spring-service')

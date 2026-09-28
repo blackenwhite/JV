@@ -1,0 +1,6 @@
+plugins {
+    id 'base'
+}
+
+group = 'com.nabajyoti'
+version = '0.1.0-SNAPSHOT'
