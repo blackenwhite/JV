@@ -48,4 +48,13 @@ public class BoundedBlockingQueue<T> {
             lock.unlock();
         }
     }
+
+    public int size() {
+        lock.lock();
+        try{
+            return items.size();
+        }finally {
+            lock.unlock();
+        }
+    }
 }
