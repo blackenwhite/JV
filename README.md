@@ -6,11 +6,13 @@ Java 23 + Gradle monorepo for independently runnable projects.
 
 - `plain-java-app` — standalone Java application
 - `spring-service` — Spring Boot web application
+- `system-design-arpit-bh` — system design exercises (plain Java)
 
 ## Commands
 
 ```bash
 ./gradlew :plain-java-app:run
+./gradlew :system-design-arpit-bh:run
 ./gradlew :spring-service:bootRun
 ./gradlew test
 ./gradlew build

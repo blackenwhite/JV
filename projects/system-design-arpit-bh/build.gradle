@@ -1,0 +1,17 @@
+plugins {
+    id 'application'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(23)
+    }
+}
+
+application {
+    mainClass = 'com.nabajyoti.systemdesign.Main'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
