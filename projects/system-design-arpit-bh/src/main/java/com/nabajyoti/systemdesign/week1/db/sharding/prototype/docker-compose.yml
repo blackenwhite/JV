@@ -1,0 +1,29 @@
+services:
+
+  shard-0:
+    image: postgres:17
+    container_name: shard-0
+    environment:
+      POSTGRES_USER: shard_user
+      POSTGRES_PASSWORD: shard_password
+      POSTGRES_DB: shard_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - shard-0-data:/var/lib/postgresql/data
+
+  shard-1:
+    image: postgres:17
+    container_name: shard-1
+    environment:
+      POSTGRES_USER: shard_user
+      POSTGRES_PASSWORD: shard_password
+      POSTGRES_DB: shard_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - shard-1-data:/var/lib/postgresql/data
+
+volumes:
+  shard-0-data:
+  shard-1-data:
