@@ -28,6 +28,9 @@ public class Main {
                 "alice@example.com"
         );
 
+        User bob = new User(102, "Bob", "bob@example.com");
+
         userService.createUser(alice);
+        userService.createUser(bob);
     }
 }
