@@ -4,3 +4,11 @@ plugins {
 
 group = 'com.nabajyoti'
 version = '0.1.0-SNAPSHOT'
+
+subprojects { sub ->
+    sub.plugins.withId('application') {
+        sub.dependencies {
+            implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+        }
+    }
+}
