@@ -35,3 +35,13 @@ for update;
 update cart_items set quantity = quantity + 5 where cart_id = 1 and owner_id = 5
 
 commit;
+
+--- optimistic locking
+update cart_items
+set quantity = 3,
+    version = version + 1,
+    updated_at = now()
+where cart_id = 1
+  and product_id = 2
+  and version = 4
+    returning *;
