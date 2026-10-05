@@ -21,3 +21,5 @@ include ':system-design-arpit-bh'
 project(':plain-java-app').projectDir = file('projects/plain-java-app')
 project(':spring-service').projectDir = file('projects/spring-service')
 project(':system-design-arpit-bh').projectDir = file('projects/system-design-arpit-bh')
+
+include 'projects:plain-java-app:dsapractice'
