@@ -34,7 +34,7 @@ public class Server {
                 os.write("retry: 3000\n\n".getBytes(StandardCharsets.UTF_8));
                 os.flush();
 
-                long id = 1;
+                long id = readLastEventId(exchange) + 1;
                 while(true) {
                     sendEvent(os, id, "tick", "{\"count\": " + id + "}");
                     id++;
@@ -54,5 +54,17 @@ public class Server {
                 + "data: " + data + "\n\n";
         os.write(event.getBytes(StandardCharsets.UTF_8));
         os.flush();
+    }
+
+    private static long readLastEventId(com.sun.net.httpserver.HttpExchange exchange) {
+        String header = exchange.getRequestHeaders().getFirst("Last-Event-ID");
+        if (header == null) {
+            return 0;
+        }
+        try {
+            return Long.parseLong(header.trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 }
