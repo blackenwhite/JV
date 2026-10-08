@@ -2,6 +2,7 @@ package com.nabajyoti.systemdesign.week1.sse;
 
 import com.sun.net.httpserver.HttpServer;
 
+import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -23,27 +24,35 @@ public class Server {
         System.out.println("Server running on http://localhost:8080");
 
         server.createContext("/events", exchange -> {
-            // 1. Tell the client this is an event stream
             exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
             exchange.getResponseHeaders().set("Cache-Control", "no-cache");
             exchange.getResponseHeaders().set("Connection", "keep-alive");
-
-            // 2. Send headers. Length 0 = "I don't know the size, I'll keep streaming"
             exchange.sendResponseHeaders(200, 0);
 
-            // 3. Write events down the open connection
             OutputStream os = exchange.getResponseBody();
-            for (int i = 1; i <= 5; i++) {
-                String event = "data: message " + i + "\n\n";
-                os.write(event.getBytes(StandardCharsets.UTF_8));
+            try{
+                os.write("retry: 3000\n\n".getBytes(StandardCharsets.UTF_8));
                 os.flush();
-                try {
+
+                long id = 1;
+                while(true) {
+                    sendEvent(os, id, "tick", "{\"count\": " + id + "}");
+                    id++;
                     Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
                 }
+            }catch(Exception e) {
+                System.out.println("client disconnected");
+            }finally {
+                exchange.close();
             }
-            exchange.close();
         });
+    }
+
+    private static void sendEvent(OutputStream os, long id, String name, String data) throws IOException {
+        String event = "id: " + id + "\n"
+                + "event: " + name + "\n"
+                + "data: " + data + "\n\n";
+        os.write(event.getBytes(StandardCharsets.UTF_8));
+        os.flush();
     }
 }
