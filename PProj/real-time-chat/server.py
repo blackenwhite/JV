@@ -16,7 +16,7 @@ async def connect(sid, environ, auth):
 async def handle_chat_message(sid, message):
     print(f"Message from {sid}: {message}")
 
-    await sio.emit("chat_message", message, room=sid)
+    await sio.emit("chat_message", message)
 
 
 @sio.event
