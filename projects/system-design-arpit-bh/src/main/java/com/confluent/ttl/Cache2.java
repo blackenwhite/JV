@@ -1,4 +1,4 @@
-package com.nabajyoti.confluent.ttl;
+package com.confluent.ttl;
 
 import java.util.HashMap;
 import java.util.Map;
