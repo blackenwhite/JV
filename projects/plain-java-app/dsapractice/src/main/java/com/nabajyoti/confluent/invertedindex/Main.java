@@ -27,12 +27,6 @@ class InvertedIndex {
     public void addDocument(int docId, String text) {
         String[] words = text.toLowerCase().split("[^a-z]+");
 
-//        for(String word: words) {
-//            if(word.isEmpty()) {
-//                continue;
-//            }
-//            index.computeIfAbsent(word, k->new HashSet<>()).add(docId);
-//        }
         for(int i=0;i< words.length;i++){
             String word = words[i];
             if(word.isEmpty()) {
@@ -42,6 +36,20 @@ class InvertedIndex {
             List<Integer> existingList = listMap.getOrDefault(docId, new ArrayList<>());
             existingList.add(i);
             listMap.put(docId, existingList);
+            index2.put(word, listMap);
+        }
+    }
+
+    public void addDocument(int docId, String[] words) {
+        for(int i=0;i< words.length;i++) {
+            String word = words[i];
+            if(word.isEmpty()) {
+                continue;
+            }
+            Map<Integer, List<Integer>> listMap = index2.getOrDefault(word, new HashMap<>());
+            List<Integer> positionList = listMap.getOrDefault(docId, new ArrayList<>());
+            positionList.add(i);
+            listMap.put(docId, positionList);
             index2.put(word, listMap);
         }
     }
