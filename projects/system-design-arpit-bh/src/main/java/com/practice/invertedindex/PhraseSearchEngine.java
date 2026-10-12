@@ -42,7 +42,7 @@ public class PhraseSearchEngine {
     }
 
     // search for a word
-    public List<Integer> getDocIds(String word) {
+    public List<Integer> searchWord(String word) {
         if(index.containsKey(word)) {
             return new ArrayList<>(index.get(word).keySet());
         }else{
@@ -105,7 +105,7 @@ public class PhraseSearchEngine {
         }
         ps.preprocess(documents);
 
-        List<Integer> ids = ps.getDocIds("cloud");
+        List<Integer> ids = ps.searchWord("cloud");
 //        for(int id: ids) {
 //            System.out.println(id);
 //        }
