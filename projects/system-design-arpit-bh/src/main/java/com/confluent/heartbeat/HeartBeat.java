@@ -4,10 +4,16 @@ import java.util.*;
 
 class HeartbeatServer {
     private final Map<String, List<Long>> heartBeatsMap;
+    private final int bucketSize;
+    private final int numBuckets;
+    private final int allowedConsecutiveMisses;
     public HeartbeatServer(List<HeartBeat> heartbeats) {
         // ...
         heartbeats.sort(Comparator.comparingLong(HeartBeat::timestamp));
         heartBeatsMap = new HashMap<>();
+        bucketSize  = 100;
+        numBuckets = 5;
+        allowedConsecutiveMisses = 3;
 
         for(HeartBeat h : heartbeats) {
             heartBeatsMap.computeIfAbsent(h.hostName(), k-> new ArrayList<>()).add(h.timestamp());
@@ -17,10 +23,10 @@ class HeartbeatServer {
 
     public boolean isAlive(String hostname, long windowStart) {
         List<Long> timestamps = heartBeatsMap.getOrDefault(hostname, Collections.emptyList());
-        int[] windows = new int[5];
-        for(int i=0;i<5;i++) {
-            long startTimestamp = windowStart + i*100;
-            long endTimestamp = startTimestamp + 99;
+        int[] windows = new int[numBuckets];
+        for(int i=0;i<numBuckets;i++) {
+            long startTimestamp = windowStart + (long) i *bucketSize;
+            long endTimestamp = startTimestamp + bucketSize-1;
             boolean isAvailable = binarySearch(timestamps, startTimestamp, endTimestamp);
             if(isAvailable) {
                 windows[i] = 1;
@@ -28,14 +34,14 @@ class HeartbeatServer {
         }
 
         int i = 0;
-        while(i<5) {
+        while(i<numBuckets) {
             if(windows[i]==0) {
                 int j = i;
-                while(j<5 && windows[j]==0) {
+                while(j<numBuckets && windows[j]==0) {
                     j++;
                 }
                 int cnt = j-i;
-                if (cnt>=3) {
+                if (cnt>=allowedConsecutiveMisses) {
                     return false;
                 }
                 i=j;
