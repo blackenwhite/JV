@@ -106,6 +106,14 @@ public class PollingServer {
         String path = exchange.getRequestURI().getPath();
         String[] pathParts = path.split("/");
 
+        if (pathParts.length == 5
+                && "instances".equals(pathParts[1])
+                && "status".equals(pathParts[3])
+                && "long-poll".equals(pathParts[4])) {
+            handleLongPoll(exchange, pathParts[2], instanceStore);
+            return;
+        }
+
         if (pathParts.length != 4
                 || !"instances".equals(pathParts[1])
                 || !"status".equals(pathParts[3])) {
@@ -143,6 +151,59 @@ public class PollingServer {
         );
 
         sendResponse(exchange, 200, response);
+    }
+
+    private static void handleLongPoll(
+            HttpExchange exchange,
+            String instanceId,
+            InstanceStore instanceStore
+    ) throws IOException {
+        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendResponse(
+                    exchange,
+                    405,
+                    "{\"error\":\"Method not allowed\"}"
+            );
+            return;
+        }
+
+        EC2Instance instance = instanceStore
+                .findById(instanceId)
+                .orElse(null);
+
+        if (instance == null) {
+            sendResponse(
+                    exchange,
+                    404,
+                    "{\"error\":\"Instance not found\"}"
+            );
+            return;
+        }
+
+        try {
+            InstanceStatus status =
+                    instance.waitForCompletion(15_000);
+
+            String response = """
+                {
+                  "instanceId": "%s",
+                  "status": "%s"
+                }
+                """.formatted(
+                    instance.getId(),
+                    status
+            );
+
+            sendResponse(exchange, 200, response);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+
+            sendResponse(
+                    exchange,
+                    500,
+                    "{\"error\":\"Long poll interrupted\"}"
+            );
+        }
     }
 }
 

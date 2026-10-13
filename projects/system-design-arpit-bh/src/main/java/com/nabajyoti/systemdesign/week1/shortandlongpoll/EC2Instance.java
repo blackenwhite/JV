@@ -25,7 +25,23 @@ public class EC2Instance {
         return status;
     }
 
-    public void markAsRunning() {
+    public synchronized void markAsRunning() {
         this.status = InstanceStatus.RUNNING;
+        notifyAll();
+    }
+
+    public synchronized InstanceStatus waitForCompletion(
+            long timeoutMillis
+    ) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+        while (status == InstanceStatus.CREATING) {
+            long remainingMillis =
+                    deadline - System.currentTimeMillis();
+            if (remainingMillis <= 0) {
+                break;
+            }
+            wait(remainingMillis);
+        }
+        return status;
     }
 }
