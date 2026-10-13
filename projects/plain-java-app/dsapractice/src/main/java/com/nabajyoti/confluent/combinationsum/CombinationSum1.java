@@ -19,5 +19,25 @@ Constraints:
 10
 9*/
 
+    public boolean isPossible(int[] candidates, int target) {
+        // can use each candidate once - i.e not unbounded
+        boolean[] possible = new boolean[target+1];
+        possible[0] = true;
 
+        for(int num: candidates) {
+            for(int sum=target; sum>=num;sum--) {
+                possible[sum] = possible[sum] | possible[sum-num];
+            }
+        }
+
+        return possible[target];
+
+    }
+
+    public static void main(String[] args) {
+        CombinationSum1 solution = new CombinationSum1();
+        int[] candidates = {2,2,3};
+        int target = 8;
+        System.out.println(solution.isPossible(candidates, target));
+    }
 }
