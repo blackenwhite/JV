@@ -48,7 +48,6 @@ public class PhraseSearchEngine {
         }else{
             return Collections.emptyList();
         }
-
     }
 
     // search for a phrase
@@ -58,7 +57,10 @@ public class PhraseSearchEngine {
             return Collections.emptyList();
         }
         int n = phrase.size();
-        Set<Integer> candidates = index.get(phrase.getFirst()).keySet(); // O(1) , O(K) to get candidates , K = number of words in phrase
+        if(index.get(phrase.getFirst()) == null) {
+            return Collections.emptyList();
+        }
+        Set<Integer> candidates = new HashSet<>(index.get(phrase.getFirst()).keySet()); // O(1) , O(K) to get candidates , K = number of words in phrase
         for(int i=1;i<n;i++) {
             Set<Integer> temp = index.get(phrase.get(i)).keySet();
             candidates.retainAll(temp);
@@ -84,7 +86,7 @@ public class PhraseSearchEngine {
         boolean matches = true;
         for(int i=1;i<phrase.size();i++) {
             // check whether this word is present in that docId, in (pos0+i) th position
-            Set<Integer> positions = index.get(phrase.get(i)).get(docId);
+            Set<Integer> positions = index.getOrDefault(phrase.get(i), Collections.emptyMap()).getOrDefault(docId, Collections.emptySet());
             if(!positions.contains(posFirstWord+i)) {
                 return false;
             }
