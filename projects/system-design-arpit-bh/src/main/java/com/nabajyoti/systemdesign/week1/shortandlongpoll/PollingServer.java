@@ -35,6 +35,12 @@ public class PollingServer {
         System.out.println(
                 "Polling server running at http://localhost:" + PORT
         );
+
+
+        server.createContext(
+                "/instances/",
+                exchange -> handleStatus(exchange, instanceStore)
+        );
     }
 
     private static void handleCreateInstance(
