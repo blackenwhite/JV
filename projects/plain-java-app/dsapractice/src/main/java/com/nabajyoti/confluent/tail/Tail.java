@@ -12,9 +12,9 @@ public class Tail {
             return "";
         }
 
-        try(RandomAccessFile raf = new RandomAccessFile(file, "r")) {
-
-        }
+//        try(RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+//
+//        }
 
         StringBuilder stringBuilder = new StringBuilder();
 //        BufferedOutputStream bufferedOutputStream; -> can use that in prod
