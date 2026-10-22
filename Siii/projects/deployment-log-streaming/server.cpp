@@ -141,6 +141,53 @@ int main()
             });
     });
 
+    svr.WebSocket("/deploys/:id/logs/ws", [](const httplib::Request& req, httplib::ws::WebSocket& ws){
+        long id = stol(req.path_params.at("id"));
+        shared_ptr<Deploy> deploy;
+        {
+            lock_guard<mutex> lock(deploys_mu);
+            auto it = deploys.find(id);
+            if (it == deploys.end()) {
+                ws.send("not found");
+                ws.close();
+                return;
+            }
+            deploy = it->second;
+        }
+
+        ws.set_read_timeout(chrono::milliseconds(200));
+        long last = 0;
+
+        while(ws.is_open()) {
+            string incoming;
+            auto result = ws.read(incoming);
+            if (result == httplib::ws::ReadResult::Fail) break;
+            if (result == httplib::ws::ReadResult::Text && incoming == "ping") {
+                if (!ws.send("pong")) break;
+            }
+
+            vector<LogLine> fresh;
+            bool done = false;
+
+            {
+                lock_guard<mutex> lock(deploy->mu);
+                for (const auto& line : deploy->lines) {
+                    if (line.id > last) fresh.push_back(line);
+                }
+                done = deploy->status == "done";
+            }
+
+            for (const auto& line : fresh) {
+                if (!ws.send(to_string(line.id) + " " + line.text)) return;
+                last = line.id;
+            }
+
+            if (done && fresh.empty()) {
+                ws.close();
+                break;
+            }
+        }
+    });
     cout << "listening on http://localhost:8080\n";
     svr.listen("0.0.0.0", 8080);
 }
