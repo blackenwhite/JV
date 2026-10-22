@@ -96,6 +96,51 @@ int main()
         res.set_content(snapshot(deploy), "application/json");
     });
 
+    svr.Get("/deploys/:id/logs/sse", [](const httplib::Request& req, httplib::Response& res) {
+        long id = stol(req.path_params.at("id"));
+        shared_ptr<Deploy> deploy;
+        {
+            lock_guard<mutex> lock(deploys_mu);
+            auto it = deploys.find(id);
+            if (it == deploys.end()) {
+                res.status = 404;
+                res.set_content("not found\n", "text/plain");
+                return;
+            }
+            deploy = it->second;
+        }
+        res.set_header("Cache-Control", "no-cache");
+        res.set_chunked_content_provider(
+            "text/event-stream",
+            [deploy](size_t, httplib::DataSink& sink) {
+                long last = 0;
+                while (true) {
+                    vector<LogLine> fresh;
+                    bool done = false;
+                    {
+                        lock_guard<mutex> lock(deploy->mu);
+                        for (const auto& line : deploy->lines) {
+                            if (line.id > last) fresh.push_back(line);
+                        }
+                        done = deploy->status == "done";
+                    }
+                    for (const auto& line : fresh) {
+                        string event =
+                            "id: " + to_string(line.id) + "\n"
+                            "event: log\n"
+                            "data: " + line.text + "\n\n";
+                        if (!sink.write(event.data(), event.size())) return false;
+                        last = line.id;
+                    }
+                    if (done && fresh.empty()) {
+                        sink.done();
+                        return false;
+                    }
+                    this_thread::sleep_for(chrono::milliseconds(200));
+                }
+            });
+    });
+
     cout << "listening on http://localhost:8080\n";
     svr.listen("0.0.0.0", 8080);
 }
