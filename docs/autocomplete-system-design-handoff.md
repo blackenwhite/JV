@@ -24,6 +24,7 @@ Interview target: Senior Software Engineer, LinkedIn-style, 45 minutes. Hello In
 | 3 | Deep dive 3 — index does not fit on one machine | Superseded. History only. |
 | 3 | Deep dive 4 — suggestions fail open | Superseded. History only. Availability now uses full replicas. |
 | 3 | Revision — full trie on every server | Locked. This is the current design. |
+| 4 | Final architecture diagram | Locked. Captures the full-replica design and main flow. |
 
 **Next chat step:** No required deep dive remains. Spelling, personalization, and languages are optional follow-ups, only if Nabajyoti asks. `next` alone does not start one. Do not revive alphabet sharding.
 
@@ -324,6 +325,41 @@ Nabajyoti’s correction. This replaces Deep dives 3 and 4 as the design to defe
 - Shard only when a measured snapshot does not fit. Use prefix ranges cut by size and traffic, such as `a–ap` and `ap–b`, and rebuild the range map with the hourly snapshot. Do not hash the prefix. A prefix that crosses a cut still spans more than one range.
 
 **What to say.** “I prune the catalog and store phrase IDs, so the trie is a few gigabytes and fits on one machine. Every server holds the full snapshot, and I add replicas for traffic and for a dead node. I reload one replica at a time. I would range-shard from the measured data only if that snapshot stopped fitting. I accept that a rare phrase is never suggested.”
+
+---
+
+## Locked final architecture
+
+```mermaid
+flowchart TB
+    Keystroke[Keystroke: GET /suggestions]
+    Submit[Submitted search: POST /searches]
+
+    Keystroke --> LB[Load balancer]
+    LB -->|prefix to any healthy replica| R1[Replica 1: full pruned trie in memory]
+    LB --> R2[Replica 2: full pruned trie in memory]
+    LB --> RN[Replica N: full pruned trie in memory]
+    LB -.->|no answer in about 10 ms: try next replica| R2
+    LB -.->|every replica down: empty list, search still works| Empty[No suggestions]
+
+    Submit -->|202: normalize, add 1| Map[One in-memory hourly count map]
+    Map -->|hourly: swap aside, one delta per phrase| PG[(Postgres phrases: source of truth for popularity)]
+    PG -->|after flush commits: stream most popular first, prune by min count and length cap| Build[Build one pruned trie: phrase stored once, nodes hold 4-byte IDs]
+    Build --> Snap[(Durable snapshot store)]
+    Snap -->|reload one replica, wait for healthy, then the next| R1
+    Snap --> R2
+    Snap --> RN
+```
+
+### Main flow
+
+1. A keystroke hits the load balancer, which picks any healthy replica. That replica walks its in-memory trie — one node per character — and returns the top 10 phrases precomputed on the node. `a`, `app`, and `lin` all hit the same full trie. Postgres and the snapshot store are never on the keystroke path.
+2. If a replica does not answer in about 10 ms, the balancer fails over to another. If every replica is down, the prefix returns an empty list. The search box still works.
+3. `POST /searches` normalizes the text and adds 1 to one in-memory map for the current hour, returning `202`. A counter crash drops the open hour but leaves all tries serving.
+4. Once an hour: swap the map aside, flush one `popularity + delta` per phrase into Postgres, and only discard the map after the commit. A failed flush retries the same deltas.
+5. After the flush commits, the build streams phrases most-popular-first, keeps only those above the minimum count and under the length cap, stores each phrase once, and puts about 4-byte phrase IDs on the nodes. A node with 10 phrases never takes a less popular one.
+6. The build publishes one snapshot to durable storage. Replicas reload one at a time — the next loads only after the previous is healthy on the new build. A failed build leaves the previous trie serving everywhere.
+7. Degradation: if Postgres is down, the dropdown keeps reading memory and the flush retries. Fallback only if a measured snapshot outgrows one machine: prefix-range shards cut by size and traffic, never hashed.
 
 ---
 
