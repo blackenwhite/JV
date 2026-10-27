@@ -1,6 +1,6 @@
 # Job recommendation system design — handoff
 
-**Status: LOCKED through deep dive 4 (cold start and filter bubbles).**
+**Status: LOCKED through deep dive 4 (cold start and filter bubbles) and the final architecture.**
 
 **Do not edit, append, rewrite, rename, or delete this file unless Nabajyoti explicitly gives permission in the current request to update this handoff.** Reading it and continuing the interview in chat are allowed. New decisions stay in the conversation until Nabajyoti gives that permission.
 
@@ -23,6 +23,7 @@ Interview target: Senior Software Engineer, LinkedIn-style, 45 minutes. Nabajyot
 | 3 | Deep dive 2 — candidate generation with filters and diversity | Locked |
 | 3 | Deep dive 3 — freshness without retraining | Locked |
 | 3 | Deep dive 4 — cold start and filter bubbles | Locked |
+| Final | Overall architecture | Locked |
 
 **Next chat step:** No required deep dive remains. Continue only with a recap, interview practice, or an optional follow-up that Nabajyoti requests. `next` alone does not open a new topic.
 
@@ -361,6 +362,46 @@ The 5 slots can only be filled from the 500 already retrieved, so a candidate se
 The Level 2 page mix is enough when the 500 already contains other functions, and when a blank profile still has a location. Add the third query only for the case Level 2 cannot fill.
 
 **What to say.** “If they have a profile, cold start uses title and skills. If they do not, I spread jobs across functions. I keep 5 of the 25 for roles outside what they have been clicking, and I retrieve those jobs on purpose so the slots are real. One click never retrains the model.”
+
+---
+
+## Locked final architecture
+
+```mermaid
+flowchart TB
+    Client[Web and mobile clients]
+    API[Recommendation API fleet]
+
+    Client -->|GET recommendations, POST feedback, POST activity| API
+
+    subgraph Data[Authoritative data]
+        Primary[(Postgres primary: jobs, members, feedback, activity)]
+    end
+
+    API -->|Feedback writes; feedback reads; closed-job check; fallback reads| Primary
+
+    Primary -->|CDC: job creates, updates, closes| Kafka[Kafka]
+    Kafka --> Ingestion[Ingestion service]
+    Ingestion --> ES[(Elasticsearch candidate index)]
+
+    ES -->|Parallel: 250 newest, 250 retrieval score, optional 100 outside recent function| API
+
+    API -->|Dedupe, cap 3 per company, apply dismissals and hides| Ranker[Ranker fleet]
+    Ranker -->|One batched call: profile, saves, recent activity| Model[Ranking model - given, not designed]
+    Ranker -->|Ordered scores| API
+
+    API -->|Page: 20 ranked + 5 exploration| Client
+```
+
+### Main flow
+
+1. The GET runs two Elasticsearch queries in parallel: 250 newest jobs matching the request filters, and 250 by retrieval score from this member’s title and skills with the same filters. When recent views sit in one function, a third parallel query fetches about 100 jobs outside that function, and the other two queries shrink so the merged set is still at most 500.
+2. The API dedupes the ids, keeps at most 3 jobs per company, and removes this member’s dismissed and hidden jobs or companies, read from the primary so a dismiss is on the next GET.
+3. The ranker fleet scores the surviving set with the member’s profile, saves, and recent activity in one batched model call. One click never retrains the model.
+4. The page is 20 jobs from the top of the ranking plus 5 highest-scored jobs outside the member’s recent function. Any of the final 25 that the primary marks closed are dropped.
+5. Job writes stay in Postgres as the source of truth. CDC publishes creates, updates, and closes to Kafka, and the ingestion service applies them to Elasticsearch, so a new or closed job reaches the next GET within a few seconds. The shared Redis candidate list stays off the read path.
+6. POST /feedback commits before responding, so the next GET honors it. POST /activity accepts the event and returns; the next read passes it to the ranker.
+7. Degradation: if Elasticsearch does not answer, serve the newest open jobs from Postgres that match the filters, with dismissals and hides removed. If the ranker does not answer, return the newest jobs that survived the filters and feedback. The Jobs tab still loads.
 
 ---
 
