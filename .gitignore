@@ -7,5 +7,6 @@ out/
 .DS_Store
 
 *.cursor/
+.vscode/
 
 docs/linkedin-host-manager-handoff.md

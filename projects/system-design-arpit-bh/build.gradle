@@ -16,6 +16,7 @@ dependencies {
     implementation "org.postgresql:postgresql:${postgresqlVersion}"
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    implementation 'org.neo4j.driver:neo4j-java-driver:5.28.1'
 }
 
 tasks.named('test') {
