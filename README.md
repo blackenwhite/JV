@@ -43,3 +43,8 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 
 - [In-memory two-phase commit](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week2/twoPC/) — a coordinator asks two accounts to prepare a transfer, records COMMIT or ABORT, then tells both accounts that decision.
 - If the coordinator stops after the decision is logged, recovery reads the log and sends that same decision again.
+
+## Message broadcast
+
+- [Star topology with Redis Pub/Sub](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week2/broadcast/) — lives under `system-design-arpit-bh` in `week2/broadcast`. Each `ChatServer` publishes a typed line to the `broadcast` channel, and every other running server prints it.
+- Redis is the only hub. Servers do not open connections to each other. `technical-details.md` in that package walks the prototype.
