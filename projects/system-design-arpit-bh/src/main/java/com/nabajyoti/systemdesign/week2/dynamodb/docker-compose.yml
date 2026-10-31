@@ -1,0 +1,15 @@
+services:
+  dynamodb-pg:
+    image: postgres:17
+    container_name: dynamodb-pg
+    environment:
+      POSTGRES_USER: ddb_user
+      POSTGRES_PASSWORD: ddb_password
+      POSTGRES_DB: dynamodb
+    ports:
+      - "5435:5432"
+    volumes:
+      - dynamodb-pg-data:/var/lib/postgresql/data
+
+volumes:
+  dynamodb-pg-data:
