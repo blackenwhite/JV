@@ -38,6 +38,7 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 - [PostgreSQL sharding prototype](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week1/db/sharding/prototype/) — routes users across two PostgreSQL shards and uses parallel scatter-gather reads.
 - [MySQL primary/read-replica prototype](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week1/mysql/replica/) — configures GTID-based replication with writes on a primary and read-only queries on a replica.
 - [Neo4j ingest and pagination](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week2/neo4j/) — lives under `system-design-arpit-bh` in `week2/neo4j` with Docker Compose and a Java driver demo. It batch-loads `Person` nodes and `FOLLOWS` edges, then pages one user’s follow list with offset (`SKIP`/`LIMIT`) and cursor-based queries so you can see the tradeoffs.
+- [DynamoDB on Postgres](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week2/dynamodb/) — one DynamoDB table is one Postgres table: partition key plus sort key as the primary key, other attributes in `jsonb`. Local and global secondary indexes are extra tables rewritten in the same transaction as the base item, so a customer query can sort by status and a warehouse query can span customers. Item APIs cover put, get, delete, query, and scan.
 
 ## Two-phase commit
 

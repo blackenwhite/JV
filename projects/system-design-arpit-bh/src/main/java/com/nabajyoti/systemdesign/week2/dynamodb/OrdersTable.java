@@ -21,6 +21,7 @@ public class OrdersTable {
             deleteIndexRows(pk, sk);
             upsertBase(pk, sk, attributesJson);
             insertIndexRow(pk, sk);
+            insertGsiRow(pk, sk);
             connection.commit();
         } catch (Exception e) {
             connection.rollback();
@@ -37,6 +38,7 @@ public class OrdersTable {
             int inserted = insertBaseIfAbsent(pk, sk, attributesJson);
             if (inserted == 1) {
                 insertIndexRow(pk, sk);
+                insertGsiRow(pk, sk);
             }
             connection.commit();
             return inserted == 1;
@@ -141,6 +143,14 @@ public class OrdersTable {
             statement.setString(2, baseSk);
             statement.executeUpdate();
         }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                DELETE FROM orders_by_warehouse
+                WHERE base_pk = ? AND base_sk = ?
+                """)) {
+            statement.setString(1, pk);
+            statement.setString(2, baseSk);
+            statement.executeUpdate();
+        }
     }
 
     private void insertIndexRow(String pk, String baseSk) throws Exception {
@@ -150,6 +160,32 @@ public class OrdersTable {
                 FROM orders
                 WHERE pk = ? AND sk = ?
                   AND attributes->>'status' IS NOT NULL
+                """)) {
+            statement.setString(1, pk);
+            statement.setString(2, baseSk);
+            statement.executeUpdate();
+        }
+    }
+
+    public List<Item> queryByWarehouse(String warehouseId) throws Exception {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT base_pk AS pk, base_sk AS sk, attributes
+                FROM orders_by_warehouse
+                WHERE gsi_pk = ?
+                ORDER BY gsi_sk, base_pk, base_sk
+                """)) {
+            statement.setString(1, warehouseId);
+            return readItems(statement);
+        }
+    }
+
+    private void insertGsiRow(String pk, String baseSk) throws Exception {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                INSERT INTO orders_by_warehouse (gsi_pk, gsi_sk, base_pk, base_sk, attributes)
+                SELECT attributes->>'warehouseId', sk, pk, sk, attributes
+                FROM orders
+                WHERE pk = ? AND sk = ?
+                  AND attributes->>'warehouseId' IS NOT NULL
                 """)) {
             statement.setString(1, pk);
             statement.setString(2, baseSk);

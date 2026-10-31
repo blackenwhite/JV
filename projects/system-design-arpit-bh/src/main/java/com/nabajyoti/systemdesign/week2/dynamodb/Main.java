@@ -34,57 +34,64 @@ public class Main {
                 CREATE INDEX IF NOT EXISTS orders_by_status_base
                 ON orders_by_status (pk, base_sk)
         """);
+            statement.execute("""
+                CREATE TABLE IF NOT EXISTS orders_by_warehouse (
+                    gsi_pk VARCHAR(255) NOT NULL,
+                    gsi_sk VARCHAR(255) NOT NULL,
+                    base_pk VARCHAR(255) NOT NULL,
+                    base_sk VARCHAR(255) NOT NULL,
+                    attributes JSONB NOT NULL,
+                    PRIMARY KEY (gsi_pk, gsi_sk, base_pk, base_sk)
+                )
+                """);
+            statement.execute("""
+                CREATE INDEX IF NOT EXISTS orders_by_warehouse_base
+                ON orders_by_warehouse (base_pk, base_sk)
+                """);
+            statement.execute("DELETE FROM orders_by_warehouse");
             statement.execute("DELETE FROM orders_by_status");
             statement.execute("DELETE FROM orders");
 
             OrdersTable orders = new OrdersTable(conn);
             orders.putItem("CUSTOMER#c-1", "ORDER#1001",
-                    "{\"customerId\":\"c-1\",\"status\":\"OPEN\",\"total\":10}");
+                    "{\"customerId\":\"c-1\",\"status\":\"OPEN\",\"warehouseId\":\"w-9\",\"total\":10}");
             orders.putItem("CUSTOMER#c-1", "ORDER#1002",
-                    "{\"customerId\":\"c-1\",\"status\":\"PAID\",\"total\":20}");
+                    "{\"customerId\":\"c-1\",\"status\":\"PAID\",\"warehouseId\":\"w-9\",\"total\":20}");
             orders.putItem("CUSTOMER#c-1", "ORDER#1003",
-                    "{\"customerId\":\"c-1\",\"status\":\"OPEN\",\"total\":30}");
+                    "{\"customerId\":\"c-1\",\"status\":\"OPEN\",\"warehouseId\":\"w-4\",\"total\":30}");
             orders.putItem("CUSTOMER#c-1", "ORDER#1004",
                     "{\"customerId\":\"c-1\",\"status\":\"OPEN\",\"total\":40}");
             orders.putItem("CUSTOMER#c-2", "ORDER#2001",
-                    "{\"customerId\":\"c-2\",\"status\":\"OPEN\",\"total\":50}");
+                    "{\"customerId\":\"c-2\",\"status\":\"OPEN\",\"warehouseId\":\"w-9\",\"total\":50}");
 
-            System.out.println("base table, customer c-1, order-id order");
-            for (Item item : orders.query("CUSTOMER#c-1", null, 10)) {
-                System.out.println(item.sk());
+            System.out.println("warehouse w-9");
+            for (Item item : orders.queryByWarehouse("w-9")) {
+                System.out.println(item.pk() + " " + item.sk());
             }
 
-            System.out.println("LSI, customer c-1, status OPEN");
-            for (Item item : orders.queryByStatus("CUSTOMER#c-1", "OPEN")) {
-                System.out.println(item.sk());
+            System.out.println("warehouse w-4");
+            for (Item item : orders.queryByWarehouse("w-4")) {
+                System.out.println(item.pk() + " " + item.sk());
             }
 
-            System.out.println("LSI, customer c-1, status PAID");
-            for (Item item : orders.queryByStatus("CUSTOMER#c-1", "PAID")) {
-                System.out.println(item.sk());
-            }
-
-            System.out.println("LSI, customer c-2, status OPEN");
-            for (Item item : orders.queryByStatus("CUSTOMER#c-2", "OPEN")) {
-                System.out.println(item.sk());
-            }
+            System.out.println("ORDER#1004 base item: " + orders.getItem("CUSTOMER#c-1", "ORDER#1004"));
 
             orders.putItem("CUSTOMER#c-1", "ORDER#1001",
-                    "{\"customerId\":\"c-1\",\"status\":\"PAID\",\"total\":10}");
-            System.out.println("after ORDER#1001 becomes PAID");
-            System.out.println("OPEN:");
-            for (Item item : orders.queryByStatus("CUSTOMER#c-1", "OPEN")) {
-                System.out.println(item.sk());
+                    "{\"customerId\":\"c-1\",\"status\":\"OPEN\",\"warehouseId\":\"w-4\",\"total\":10}");
+            System.out.println("after ORDER#1001 moves to w-4");
+            System.out.println("w-9:");
+            for (Item item : orders.queryByWarehouse("w-9")) {
+                System.out.println(item.pk() + " " + item.sk());
             }
-            System.out.println("PAID:");
-            for (Item item : orders.queryByStatus("CUSTOMER#c-1", "PAID")) {
-                System.out.println(item.sk());
+            System.out.println("w-4:");
+            for (Item item : orders.queryByWarehouse("w-4")) {
+                System.out.println(item.pk() + " " + item.sk());
             }
 
-            orders.deleteItem("CUSTOMER#c-1", "ORDER#1003");
-            System.out.println("after delete ORDER#1003, OPEN:");
-            for (Item item : orders.queryByStatus("CUSTOMER#c-1", "OPEN")) {
-                System.out.println(item.sk());
+            orders.deleteItem("CUSTOMER#c-2", "ORDER#2001");
+            System.out.println("after delete ORDER#2001, w-9:");
+            for (Item item : orders.queryByWarehouse("w-9")) {
+                System.out.println(item.pk() + " " + item.sk());
             }
         }
     }
