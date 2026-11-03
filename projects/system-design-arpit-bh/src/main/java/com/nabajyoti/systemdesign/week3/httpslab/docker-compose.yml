@@ -1,0 +1,47 @@
+services:
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:2.8.0
+    command: -config /test/config/pebble-config.json
+    ports:
+      - "14000:14000"
+      - "15000:15000"
+    environment:
+      PEBBLE_VA_NOSLEEP: "1"
+      PEBBLE_WFE_NONCEREJECT: "0"
+    volumes:
+      - ./pebble/pebble-config.json:/test/config/pebble-config.json:ro
+    networks:
+      acmenet:
+        ipv4_address: 10.30.50.2
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./www:/usr/share/nginx/html:ro
+      - ./certs:/etc/letsencrypt:ro
+    networks:
+      acmenet:
+        ipv4_address: 10.30.50.10
+        aliases:
+          - demo.local
+
+  certbot:
+    image: certbot/certbot:v2.11.0
+    volumes:
+      - ./www:/var/www/html
+      - ./certs:/etc/letsencrypt
+    networks:
+      - acmenet
+    profiles:
+      - tools
+
+networks:
+  acmenet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.30.50.0/24
