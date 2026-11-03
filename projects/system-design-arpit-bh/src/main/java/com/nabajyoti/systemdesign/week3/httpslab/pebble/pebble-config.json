@@ -7,6 +7,12 @@
     "httpPort": 80,
     "tlsPort": 443,
     "ocspResponderURL": "",
-    "externalAccountBindingRequired": false
+    "externalAccountBindingRequired": false,
+    "profiles": {
+      "default": {
+        "description": "1-hour certs for the rotation lab",
+        "validityPeriod": 3600
+      }
+    }
   }
 }

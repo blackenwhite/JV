@@ -49,3 +49,8 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 
 - [Star topology with Redis Pub/Sub](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week2/broadcast/) — lives under `system-design-arpit-bh` in `week2/broadcast`. Each `ChatServer` publishes a typed line to the `broadcast` channel, and every other running server prints it.
 - Redis is the only hub. Servers do not open connections to each other. `technical-details.md` in that package walks the prototype.
+
+## HTTPS certificate lab
+
+- [Local ACME HTTPS lab](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week3/httpslab/) — runs a real Let's Encrypt-style flow locally: Pebble (test CA) issues certs for `demo.local` via the ACME HTTP-01 challenge, Nginx serves HTTPS on 443, and a renewal script rotates 1-hour certificates with zero-downtime `nginx -s reload`.
+- On top of that, `HttpsServerLab.java` is a from-scratch JDK HTTPS server on 8443 that loads the certbot PEMs directly and hot-swaps its `SSLContext` when files change, proving cert rotation without a process restart. `technical-details.md` in that folder walks the whole exercise step by step.
