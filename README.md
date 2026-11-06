@@ -7,7 +7,6 @@ Java 23 + Gradle monorepo for independently runnable projects.
 - `plain-java-app` — standalone Java application
 - `spring-service` — Spring Boot web application
 - `system-design-arpit-bh` — system design exercises (plain Java): connection pool, bounded blocking queue, a **database sharding prototype**, and **two-phase commit** (see below)
-- Snowflake ID generator — a plain Java HTTP API that creates unique, time-sortable IDs locally using timestamp, worker ID, and sequence bits. It demonstrates scalable ID generation without a database call for every request, including concurrency, clock rollback, worker coordination, and sequence rollover.
 
 ## Commands
 
@@ -45,6 +44,10 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 
 - [In-memory two-phase commit](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week2/twoPC/) — a coordinator asks two accounts to prepare a transfer, records COMMIT or ABORT, then tells both accounts that decision.
 - If the coordinator stops after the decision is logged, recovery reads the log and sends that same decision again.
+
+## Snowflake IDs
+
+- [Snowflake ID generator](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week3/snowflake/) — a plain Java HTTP API that generates unique, time-sortable IDs locally from timestamp, worker ID, and sequence bits. It demonstrates scalable ID generation without a database call for every request, including concurrency, clock rollback, worker coordination, and sequence rollover.
 
 ## Message broadcast
 
