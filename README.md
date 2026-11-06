@@ -7,6 +7,7 @@ Java 23 + Gradle monorepo for independently runnable projects.
 - `plain-java-app` — standalone Java application
 - `spring-service` — Spring Boot web application
 - `system-design-arpit-bh` — system design exercises (plain Java): connection pool, bounded blocking queue, a **database sharding prototype**, and **two-phase commit** (see below)
+- Snowflake ID generator — a plain Java HTTP API that creates unique, time-sortable IDs locally using timestamp, worker ID, and sequence bits. It demonstrates scalable ID generation without a database call for every request, including concurrency, clock rollback, worker coordination, and sequence rollover.
 
 ## Commands
 
