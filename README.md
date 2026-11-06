@@ -58,3 +58,8 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 
 - [Local ACME HTTPS lab](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week3/httpslab/) — runs a real Let's Encrypt-style flow locally: Pebble (test CA) issues certs for `demo.local` via the ACME HTTP-01 challenge, Nginx serves HTTPS on 443, and a renewal script rotates 1-hour certificates with zero-downtime `nginx -s reload`.
 - On top of that, `HttpsServerLab.java` is a from-scratch JDK HTTPS server on 8443 that loads the certbot PEMs directly and hot-swaps its `SSLContext` when files change, proving cert rotation without a process restart. `technical-details.md` in that folder walks the whole exercise step by step.
+
+## S3 pre-signed URL
+
+- [S3 pre-signed URL](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week3/s3presign/) — a plain Java SigV4 query-string signer that prints PUT and GET URLs for a local MinIO bucket, with no AWS SDK and no AWS account.
+- `curl` uploads and downloads through those URLs; a 5-second GET demonstrates expiry. `technical-details.md` in that package walks the four signing tasks and the Docker setup. Exercise name: Generate S3 pre-signed URL on the fly going through the above documentation
