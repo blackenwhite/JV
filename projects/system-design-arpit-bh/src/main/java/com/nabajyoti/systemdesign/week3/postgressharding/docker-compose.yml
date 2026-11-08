@@ -1,0 +1,27 @@
+services:
+  postgres-server-1:
+    image: postgres:17
+    container_name: insta-postgres-server-1
+    environment:
+      POSTGRES_USER: insta_user
+      POSTGRES_PASSWORD: insta_password
+      POSTGRES_DB: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-server-1-data:/var/lib/postgresql/data
+  postgres-server-2:
+    image: postgres:17
+    container_name: insta-postgres-server-2
+    environment:
+      POSTGRES_USER: insta_user
+      POSTGRES_PASSWORD: insta_password
+      POSTGRES_DB: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-server-2-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-server-1-data:
+  postgres-server-2-data:

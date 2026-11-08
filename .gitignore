@@ -8,5 +8,6 @@ out/
 
 *.cursor/
 .vscode/
+*.dump
 
 docs/linkedin-host-manager-handoff.md
