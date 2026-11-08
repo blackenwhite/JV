@@ -64,3 +64,7 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 
 - [S3 pre-signed URL](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week3/s3presign/) — a plain Java SigV4 query-string signer that prints PUT and GET URLs for a local MinIO bucket, with no AWS SDK and no AWS account.
 - `curl` uploads and downloads through those URLs; a 5-second GET demonstrates expiry. `technical-details.md` in that package walks the four signing tasks and the Docker setup. Exercise name: Generate S3 pre-signed URL on the fly going through the above documentation
+
+## Open-addressing hash map
+
+- [Open-addressing hash map](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week4/OpenAddressingHashMap.java) — a `HashMap` implemented from scratch, so a collision stays inside one array instead of growing a bucket list. The hash only picks the starting slot, and linear probing walks forward until it finds the key or an empty slot. `put`, `get`, `containsKey`, and `remove` share that walk. Deletion leaves a tombstone so a later lookup does not stop early, and insert reuses the first tombstone on the path. When live keys plus tombstones fill half the array, `resize` doubles the table and reinserts only the live keys.
