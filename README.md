@@ -68,3 +68,8 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 ## Open-addressing hash map
 
 - [Open-addressing hash map](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week4/OpenAddressingHashMap.java) — a `HashMap` implemented from scratch, so a collision stays inside one array instead of growing a bucket list. The hash only picks the starting slot, and linear probing walks forward until it finds the key or an empty slot. `put`, `get`, `containsKey`, and `remove` share that walk. Deletion leaves a tombstone so a later lookup does not stop early, and insert reuses the first tombstone on the path. When live keys plus tombstones fill half the array, `resize` doubles the table and reinserts only the live keys.
+
+## Toy CDN
+
+- [Toy CDN](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week4/toycdn/) — a plain Java origin on 8090 and an edge on 8081 that caches HTTP responses in memory, with TTL, ETag revalidation (`304`), and purge.
+- `curl` shows `X-Cache: HIT`, `MISS`, and `REVALIDATED`. `technical-details.md` in that package walks the design and the request checklist.
