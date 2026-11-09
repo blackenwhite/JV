@@ -73,3 +73,8 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 
 - [Toy CDN](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week4/toycdn/) — a plain Java origin on 8090 and an edge on 8081 that caches HTTP responses in memory, with TTL, ETag revalidation (`304`), and purge.
 - `curl` shows `X-Cache: HIT`, `MISS`, and `REVALIDATED`. `technical-details.md` in that package walks the design and the request checklist.
+
+## CDN failover
+
+- [CDN failover](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week4/cdnfailover/) — two origins of the same site, one CDN process with hostnames `cdn-a.localhost` and `cdn-b.localhost`, and a backend that puts an 80/20 CDN URL in the response.
+- Origins run in Docker on 8091 and 8092. The CDN on 8081 routes by `Host`. The 80/20 split is weighted URL selection, not health-check failover. `technical-details.md` in that package names the roles.

@@ -1,0 +1,8 @@
+FROM eclipse-temurin:23-jdk
+
+WORKDIR /app
+COPY OriginServer.java src/com/nabajyoti/systemdesign/week4/cdnfailover/OriginServer.java
+RUN javac -d out src/com/nabajyoti/systemdesign/week4/cdnfailover/OriginServer.java
+
+ENTRYPOINT ["java", "-cp", "out", "com.nabajyoti.systemdesign.week4.cdnfailover.OriginServer"]
+CMD ["origin-1", "8091"]

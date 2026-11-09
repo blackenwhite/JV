@@ -1,0 +1,12 @@
+services:
+  origin-1:
+    build: .
+    command: ["origin-1", "8091"]
+    ports:
+      - "8091:8091"
+
+  origin-2:
+    build: .
+    command: ["origin-2", "8092"]
+    ports:
+      - "8092:8092"
