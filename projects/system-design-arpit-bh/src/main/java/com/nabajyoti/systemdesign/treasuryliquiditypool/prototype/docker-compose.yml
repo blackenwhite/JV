@@ -1,0 +1,16 @@
+services:
+  treasury-postgres:
+    image: postgres:17
+    container_name: treasury-postgres
+    environment:
+      POSTGRES_USER: treasury_user
+      POSTGRES_PASSWORD: treasury_password
+      POSTGRES_DB: treasury
+    ports:
+      - "5435:5432"
+    volumes:
+      - treasury-postgres-data:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+
+volumes:
+  treasury-postgres-data:
