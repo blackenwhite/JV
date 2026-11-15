@@ -85,6 +85,44 @@ public class Treasury {
         return applyReserve(intent.id());
     }
 
+    public ExecuteResult execute(
+            String callerId,
+            String callerKey,
+            long reservationId
+    ) throws SQLException {
+        if (reservationId <= 0) {
+            throw new IllegalArgumentException("reservation id must be > 0");
+        }
+        String payload = "{\"reservation_id\":" + reservationId + "}";
+        Intent intent = intents.put(callerId, callerKey, "execute", payload);
+        if ("done".equals(intent.status())) {
+            return loadExecuteResult(intent.id(), reservationId);
+        }
+        if ("rejected".equals(intent.status())) {
+            return new ExecuteResult(intent.id(), intent.status(), 0L);
+        }
+        return applyExecute(intent.id());
+    }
+
+    public ReleaseResult release(
+            String callerId,
+            String callerKey,
+            long reservationId
+    ) throws SQLException {
+        if (reservationId <= 0) {
+            throw new IllegalArgumentException("reservation id must be > 0");
+        }
+        String payload = "{\"reservation_id\":" + reservationId + "}";
+        Intent intent = intents.put(callerId, callerKey, "release", payload);
+        if ("done".equals(intent.status())) {
+            return loadReleaseResult(intent.id(), reservationId);
+        }
+        if ("rejected".equals(intent.status())) {
+            return new ReleaseResult(intent.id(), intent.status(), reservationId);
+        }
+        return applyRelease(intent.id());
+    }
+
     FundResult applyFund(long intentId) throws SQLException {
         try (Connection connection = Database.open()) {
             connection.setAutoCommit(false);
@@ -135,7 +173,8 @@ public class Treasury {
                 COALESCE((request_payload->>'source_cents')::bigint, 0) AS source_cents,
                 request_payload->>'dest_currency' AS dest_currency,
                 COALESCE((request_payload->>'dest_cents')::bigint, 0) AS dest_cents,
-                request_payload->>'expires_at' AS expires_at
+                request_payload->>'expires_at' AS expires_at,
+                COALESCE((request_payload->>'reservation_id')::bigint, 0) AS reservation_id
             FROM intents
             WHERE id = ?
             FOR UPDATE
@@ -155,7 +194,8 @@ public class Treasury {
                         rows.getLong("source_cents"),
                         rows.getString("dest_currency"),
                         rows.getLong("dest_cents"),
-                        rows.getString("expires_at")
+                        rows.getString("expires_at"),
+                        rows.getLong("reservation_id")
                 );
             }
         }
@@ -216,13 +256,28 @@ public class Treasury {
             long cents,
             long intentId
     ) throws SQLException {
+        insertPosting(connection, poolId, cents, null, intentId);
+    }
+
+    private static void insertPosting(
+            Connection connection,
+            long poolId,
+            long cents,
+            Long swapId,
+            long intentId
+    ) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
-                INSERT INTO postings (pool_id, cents, intent_id)
-                VALUES (?, ?, ?)
-                """)) {
+            INSERT INTO postings (pool_id, cents, swap_id, intent_id)
+            VALUES (?, ?, ?, ?)
+            """)) {
             statement.setLong(1, poolId);
             statement.setLong(2, cents);
-            statement.setLong(3, intentId);
+            if (swapId == null) {
+                statement.setObject(3, null);
+            } else {
+                statement.setLong(3, swapId);
+            }
+            statement.setLong(4, intentId);
             statement.executeUpdate();
         }
     }
@@ -487,6 +542,304 @@ public class Treasury {
         }
     }
 
+    ExecuteResult applyExecute(long intentId) throws SQLException {
+        try (Connection connection = Database.open()) {
+            connection.setAutoCommit(false);
+            takeBatchLock(connection);
+
+            LoadedIntent loaded = lockIntent(connection, intentId);
+            if (!"pending".equals(loaded.status())) {
+                connection.commit();
+                if ("done".equals(loaded.status())) {
+                    return loadExecuteResult(intentId, loaded.reservationId());
+                }
+                return new ExecuteResult(intentId, loaded.status(), 0L);
+            }
+
+            ReservationRow peek = findReservation(connection, loaded.reservationId());
+            if (peek == null) {
+                markRejected(connection, intentId);
+                connection.commit();
+                return new ExecuteResult(intentId, "rejected", 0L);
+            }
+
+            lockPoolsByIdInCurrencyOrder(
+                    connection,
+                    peek.sourcePoolId(),
+                    peek.destPoolId()
+            );
+            releaseExpired(connection, peek.sourcePoolId());
+
+            ReservationRow reservation = lockReservation(connection, loaded.reservationId());
+            if (reservation == null || !"RESERVED".equals(reservation.status())) {
+                if (reservation != null && "EXECUTED".equals(reservation.status())) {
+                    long swapId = swapIdForReservation(connection, reservation.id());
+                    markDone(connection, intentId);
+                    connection.commit();
+                    return new ExecuteResult(intentId, "done", swapId);
+                }
+                markRejected(connection, intentId);
+                connection.commit();
+                return new ExecuteResult(intentId, "rejected", 0L);
+            }
+
+            long swapId = insertSwap(connection, reservation.id(), intentId);
+
+            insertPosting(
+                    connection,
+                    reservation.sourcePoolId(),
+                    -reservation.sourceCents(),
+                    swapId,
+                    intentId
+            );
+            insertPosting(
+                    connection,
+                    reservation.destPoolId(),
+                    reservation.destCents(),
+                    swapId,
+                    intentId
+            );
+
+            long sourcePosted = latestPosted(connection, reservation.sourcePoolId())
+                    - reservation.sourceCents();
+            long destPosted = latestPosted(connection, reservation.destPoolId())
+                    + reservation.destCents();
+            insertPostedTotal(connection, reservation.sourcePoolId(), intentId, sourcePosted);
+            insertPostedTotal(connection, reservation.destPoolId(), intentId, destPosted);
+
+            markReservation(connection, reservation.id(), "EXECUTED");
+            markDone(connection, intentId);
+            connection.commit();
+            return new ExecuteResult(intentId, "done", swapId);
+        }
+    }
+
+    ReleaseResult applyRelease(long intentId) throws SQLException {
+        try (Connection connection = Database.open()) {
+            connection.setAutoCommit(false);
+            takeBatchLock(connection);
+
+            LoadedIntent loaded = lockIntent(connection, intentId);
+            if (!"pending".equals(loaded.status())) {
+                connection.commit();
+                if ("done".equals(loaded.status())) {
+                    return loadReleaseResult(intentId, loaded.reservationId());
+                }
+                return new ReleaseResult(intentId, loaded.status(), loaded.reservationId());
+            }
+
+            ReservationRow peek = findReservation(connection, loaded.reservationId());
+            if (peek == null) {
+                markRejected(connection, intentId);
+                connection.commit();
+                return new ReleaseResult(intentId, "rejected", loaded.reservationId());
+            }
+
+            lockExistingPoolById(connection, peek.sourcePoolId());
+            releaseExpired(connection, peek.sourcePoolId());
+
+            ReservationRow reservation = lockReservation(connection, loaded.reservationId());
+            if (reservation == null) {
+                markRejected(connection, intentId);
+                connection.commit();
+                return new ReleaseResult(intentId, "rejected", loaded.reservationId());
+            }
+            if ("EXECUTED".equals(reservation.status())) {
+                markRejected(connection, intentId);
+                connection.commit();
+                return new ReleaseResult(intentId, "rejected", reservation.id());
+            }
+            if ("RESERVED".equals(reservation.status())) {
+                markReservation(connection, reservation.id(), "RELEASED");
+            }
+            markDone(connection, intentId);
+            connection.commit();
+            return new ReleaseResult(intentId, "done", reservation.id());
+        }
+    }
+
+    private record ReservationRow(
+            long id,
+            long sourcePoolId,
+            long destPoolId,
+            long sourceCents,
+            long destCents,
+            String status
+    ) {
+    }
+
+    private static ReservationRow findReservation(
+            Connection connection,
+            long reservationId
+    ) throws SQLException {
+        return readReservation(connection, reservationId, false);
+    }
+
+    private static ReservationRow lockReservation(
+            Connection connection,
+            long reservationId
+    ) throws SQLException {
+        return readReservation(connection, reservationId, true);
+    }
+
+    private static ReservationRow readReservation(
+            Connection connection,
+            long reservationId,
+            boolean forUpdate
+    ) throws SQLException {
+        String sql = """
+            SELECT id, source_pool_id, dest_pool_id, source_cents, dest_cents, status
+            FROM reservations
+            WHERE id = ?
+            """ + (forUpdate ? " FOR UPDATE" : "");
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, reservationId);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    return null;
+                }
+                return new ReservationRow(
+                        rows.getLong("id"),
+                        rows.getLong("source_pool_id"),
+                        rows.getLong("dest_pool_id"),
+                        rows.getLong("source_cents"),
+                        rows.getLong("dest_cents"),
+                        rows.getString("status")
+                );
+            }
+        }
+    }
+
+    private static void lockPoolsByIdInCurrencyOrder(
+            Connection connection,
+            long poolA,
+            long poolB
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+            SELECT id
+            FROM pools
+            WHERE id IN (?, ?)
+            ORDER BY currency_code
+            FOR UPDATE
+            """)) {
+            statement.setLong(1, poolA);
+            statement.setLong(2, poolB);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    // the FOR UPDATE is the work
+                }
+            }
+        }
+    }
+
+    private static void lockExistingPoolById(
+            Connection connection,
+            long poolId
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+            SELECT id
+            FROM pools
+            WHERE id = ?
+            FOR UPDATE
+            """)) {
+            statement.setLong(1, poolId);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    throw new IllegalStateException("pool missing: " + poolId);
+                }
+            }
+        }
+    }
+
+    private static long insertSwap(
+            Connection connection,
+            long reservationId,
+            long executeIntentId
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+            INSERT INTO swaps (reservation_id, execute_intent_id)
+            VALUES (?, ?)
+            RETURNING id
+            """)) {
+            statement.setLong(1, reservationId);
+            statement.setLong(2, executeIntentId);
+            try (ResultSet rows = statement.executeQuery()) {
+                rows.next();
+                return rows.getLong(1);
+            }
+        }
+    }
+
+    private static void markReservation(
+            Connection connection,
+            long reservationId,
+            String status
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+            UPDATE reservations
+            SET status = ?
+            WHERE id = ?
+            """)) {
+            statement.setString(1, status);
+            statement.setLong(2, reservationId);
+            statement.executeUpdate();
+        }
+    }
+
+    private static long swapIdForReservation(
+            Connection connection,
+            long reservationId
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+            SELECT id
+            FROM swaps
+            WHERE reservation_id = ?
+            """)) {
+            statement.setLong(1, reservationId);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    throw new IllegalStateException(
+                            "executed reservation without swap: " + reservationId
+                    );
+                }
+                return rows.getLong(1);
+            }
+        }
+    }
+
+    private static ExecuteResult loadExecuteResult(
+            long intentId,
+            long reservationId
+    ) throws SQLException {
+        try (Connection connection = Database.open();
+             PreparedStatement statement = connection.prepareStatement("""
+                 SELECT id
+                 FROM swaps
+                 WHERE execute_intent_id = ?
+                    OR reservation_id = ?
+                 ORDER BY id
+                 LIMIT 1
+                 """)) {
+            statement.setLong(1, intentId);
+            statement.setLong(2, reservationId);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    return new ExecuteResult(intentId, "done", 0L);
+                }
+                return new ExecuteResult(intentId, "done", rows.getLong("id"));
+            }
+        }
+    }
+
+    private static ReleaseResult loadReleaseResult(
+            long intentId,
+            long reservationId
+    ) throws SQLException {
+        return new ReleaseResult(intentId, "done", reservationId);
+    }
+
+
+
     private record LoadedIntent(
             String status,
             String operation,
@@ -496,7 +849,8 @@ public class Treasury {
             long sourceCents,
             String destCurrency,
             long destCents,
-            String expiresAt
+            String expiresAt,
+            long reservationId
     ) {
     }
 }
