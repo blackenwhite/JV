@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.util.ArrayList;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -190,6 +191,38 @@ class TreasuryBatchOfOneTest {
             assertEquals("done", first.status());
             assertEquals("done", second.status());
             assertEquals(1, postingCount(first.intentId()));
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void concurrentReserves_doNotPromiseMoreThanPosted() throws Exception {
+        Treasury treasury = new Treasury();
+        String source = currency();
+        String dest = otherCurrency(source);
+        treasury.fund("test", key("src"), source, 100);
+        treasury.fund("test", key("dst"), dest, 1);
+
+        int threads = 10;
+        var pool = Executors.newFixedThreadPool(threads);
+        try {
+            var futures = new ArrayList<Future<ReserveResult>>();
+            for (int i = 0; i < threads; i++) {
+                String quoteKey = key("q");
+                futures.add(pool.submit(() -> treasury.reserve(
+                        "test", quoteKey, source, 30, dest, 1, "2030-01-01T00:00:00Z"
+                )));
+            }
+            int done = 0;
+            for (Future<ReserveResult> future : futures) {
+                if ("done".equals(future.get().status())) {
+                    done++;
+                }
+            }
+            assertTrue(done <= 3);
+            assertEquals(done * 30L, reserved(source));
+            assertEquals(100L, posted(source));
         } finally {
             pool.shutdownNow();
         }

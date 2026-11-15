@@ -8,19 +8,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 public class Treasury {
 
     static final long BATCH_LOCK_KEY = 1L;
+    static final int BATCH_CAP = 20;
+    static final long BATCH_WAIT_MS = 10;
 
     private final IntentStore intents = new IntentStore();
 
     private final BlockingQueue<Long> wakeups = new LinkedBlockingQueue<>();
     private final ArrayList<LockHold> lockHolds = new ArrayList<>();
-    private String lockHoldOp;
     private long lockHoldStartNs;
 
-    public record LockHold(String operation, long nanos) {
+    public record LockHold(int batchSize, long nanos) {
     }
 
     public List<LockHold> lockHolds() {
@@ -175,47 +177,34 @@ public class Treasury {
         return new ReleaseResult(intent.id(), status, reservationId);
     }
 
-    FundResult applyFund(long intentId) throws SQLException {
-        try (Connection connection = Database.open()) {
-            connection.setAutoCommit(false);
-            takeBatchLock(connection, "fund");
-
-            LoadedIntent loaded = lockIntent(connection, intentId);
-            if (!"pending".equals(loaded.status())) {
-                commitMoney(connection);
-                if ("done".equals(loaded.status())) {
-                    return loadFundResult(intentId);
-                }
-                return new FundResult(intentId, loaded.status(), 0L, 0L);
-            }
-
-            long poolId = lockPool(connection, loaded.currency());
-            long previous = latestPosted(connection, poolId);
-            long next = previous + loaded.cents();
-
-            insertPosting(connection, poolId, loaded.cents(), intentId);
-            insertPostedTotal(connection, poolId, intentId, next);
-            markDone(connection, intentId);
-
-            commitMoney(connection);
-            return new FundResult(intentId, "done", poolId, next);
+    private void applyFund(Connection connection, long intentId) throws SQLException {
+        LoadedIntent loaded = lockIntent(connection, intentId);
+        if (!"pending".equals(loaded.status())) {
+            return;
         }
+
+        long poolId = lockPool(connection, loaded.currency());
+        long previous = latestPosted(connection, poolId);
+        long next = previous + loaded.cents();
+
+        insertPosting(connection, poolId, loaded.cents(), intentId);
+        insertPostedTotal(connection, poolId, intentId, next);
+        markDone(connection, intentId);
     }
 
-    private void takeBatchLock(Connection connection, String operation) throws SQLException {
+    private void takeBatchLock(Connection connection) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT pg_advisory_xact_lock(?)"
         )) {
             statement.setLong(1, BATCH_LOCK_KEY);
             statement.execute();
         }
-        lockHoldOp = operation;
         lockHoldStartNs = System.nanoTime();
     }
 
-    private void commitMoney(Connection connection) throws SQLException {
+    private void commitMoney(Connection connection, int batchSize) throws SQLException {
         connection.commit();
-        lockHolds.add(new LockHold(lockHoldOp, System.nanoTime() - lockHoldStartNs));
+        lockHolds.add(new LockHold(batchSize, System.nanoTime() - lockHoldStartNs));
     }
 
     private static LoadedIntent lockIntent(
@@ -398,58 +387,39 @@ public class Treasury {
         }
     }
 
-    ReserveResult applyReserve(long intentId) throws SQLException {
-        try (Connection connection = Database.open()) {
-            connection.setAutoCommit(false);
-            takeBatchLock(connection, "reserve");
-
-            LoadedIntent loaded = lockIntent(connection, intentId);
-            if (!"pending".equals(loaded.status())) {
-                commitMoney(connection);
-                if ("done".equals(loaded.status())) {
-                    return loadReserveResult(intentId);
-                }
-                return new ReserveResult(intentId, loaded.status(), 0L, 0L, 0L);
-            }
-
-            Long sourcePoolId = lockExistingPool(connection, loaded.sourceCurrency());
-            Long destPoolId = findPoolId(connection, loaded.destCurrency());
-            if (sourcePoolId == null || destPoolId == null) {
-                markRejected(connection, intentId);
-                commitMoney(connection);
-                return new ReserveResult(intentId, "rejected", 0L, 0L, 0L);
-            }
-
-            releaseExpired(connection, sourcePoolId);
-
-            long posted = latestPosted(connection, sourcePoolId);
-            long reserved = reservedOn(connection, sourcePoolId);
-            long available = posted - reserved;
-            if (available < loaded.sourceCents()) {
-                markRejected(connection, intentId);
-                commitMoney(connection);
-                return new ReserveResult(intentId, "rejected", 0L, sourcePoolId, destPoolId);
-            }
-
-            long reservationId = insertReservation(
-                    connection,
-                    intentId,
-                    sourcePoolId,
-                    loaded.sourceCents(),
-                    destPoolId,
-                    loaded.destCents(),
-                    loaded.expiresAt()
-            );
-            markDone(connection, intentId);
-            commitMoney(connection);
-            return new ReserveResult(
-                    intentId,
-                    "done",
-                    reservationId,
-                    sourcePoolId,
-                    destPoolId
-            );
+    private void applyReserve(Connection connection, long intentId) throws SQLException {
+        LoadedIntent loaded = lockIntent(connection, intentId);
+        if (!"pending".equals(loaded.status())) {
+            return;
         }
+
+        Long sourcePoolId = lockExistingPool(connection, loaded.sourceCurrency());
+        Long destPoolId = findPoolId(connection, loaded.destCurrency());
+        if (sourcePoolId == null || destPoolId == null) {
+            markRejected(connection, intentId);
+            return;
+        }
+
+        releaseExpired(connection, sourcePoolId);
+
+        long posted = latestPosted(connection, sourcePoolId);
+        long reserved = reservedOn(connection, sourcePoolId);
+        long available = posted - reserved;
+        if (available < loaded.sourceCents()) {
+            markRejected(connection, intentId);
+            return;
+        }
+
+        insertReservation(
+                connection,
+                intentId,
+                sourcePoolId,
+                loaded.sourceCents(),
+                destPoolId,
+                loaded.destCents(),
+                loaded.expiresAt()
+        );
+        markDone(connection, intentId);
     }
 
     private static Long lockExistingPool(
@@ -601,120 +571,92 @@ public class Treasury {
         }
     }
 
-    ExecuteResult applyExecute(long intentId) throws SQLException {
-        try (Connection connection = Database.open()) {
-            connection.setAutoCommit(false);
-            takeBatchLock(connection, "execute");
-
-            LoadedIntent loaded = lockIntent(connection, intentId);
-            if (!"pending".equals(loaded.status())) {
-                commitMoney(connection);
-                if ("done".equals(loaded.status())) {
-                    return loadExecuteResult(intentId, loaded.reservationId());
-                }
-                return new ExecuteResult(intentId, loaded.status(), 0L);
-            }
-
-            ReservationRow peek = findReservation(connection, loaded.reservationId());
-            if (peek == null) {
-                markRejected(connection, intentId);
-                commitMoney(connection);
-                return new ExecuteResult(intentId, "rejected", 0L);
-            }
-
-            lockPoolsByIdInCurrencyOrder(
-                    connection,
-                    peek.sourcePoolId(),
-                    peek.destPoolId()
-            );
-            releaseExpired(connection, peek.sourcePoolId());
-
-            ReservationRow reservation = lockReservation(connection, loaded.reservationId());
-            if (reservation == null || !"RESERVED".equals(reservation.status())) {
-                if (reservation != null && "EXECUTED".equals(reservation.status())) {
-                    long swapId = swapIdForReservation(connection, reservation.id());
-                    markDone(connection, intentId);
-                    commitMoney(connection);
-                    return new ExecuteResult(intentId, "done", swapId);
-                }
-                markRejected(connection, intentId);
-                commitMoney(connection);
-                return new ExecuteResult(intentId, "rejected", 0L);
-            }
-
-            long swapId = insertSwap(connection, reservation.id(), intentId);
-
-            insertPosting(
-                    connection,
-                    reservation.sourcePoolId(),
-                    -reservation.sourceCents(),
-                    swapId,
-                    intentId
-            );
-            insertPosting(
-                    connection,
-                    reservation.destPoolId(),
-                    reservation.destCents(),
-                    swapId,
-                    intentId
-            );
-
-            long sourcePosted = latestPosted(connection, reservation.sourcePoolId())
-                    - reservation.sourceCents();
-            long destPosted = latestPosted(connection, reservation.destPoolId())
-                    + reservation.destCents();
-            insertPostedTotal(connection, reservation.sourcePoolId(), intentId, sourcePosted);
-            insertPostedTotal(connection, reservation.destPoolId(), intentId, destPosted);
-
-            markReservation(connection, reservation.id(), "EXECUTED");
-            markDone(connection, intentId);
-            commitMoney(connection);
-            return new ExecuteResult(intentId, "done", swapId);
+    private void applyExecute(Connection connection, long intentId) throws SQLException {
+        LoadedIntent loaded = lockIntent(connection, intentId);
+        if (!"pending".equals(loaded.status())) {
+            return;
         }
+
+        ReservationRow peek = findReservation(connection, loaded.reservationId());
+        if (peek == null) {
+            markRejected(connection, intentId);
+            return;
+        }
+
+        lockPoolsByIdInCurrencyOrder(
+                connection,
+                peek.sourcePoolId(),
+                peek.destPoolId()
+        );
+        releaseExpired(connection, peek.sourcePoolId());
+
+        ReservationRow reservation = lockReservation(connection, loaded.reservationId());
+        if (reservation == null || !"RESERVED".equals(reservation.status())) {
+            if (reservation != null && "EXECUTED".equals(reservation.status())) {
+                markDone(connection, intentId);
+                return;
+            }
+            markRejected(connection, intentId);
+            return;
+        }
+
+        long swapId = insertSwap(connection, reservation.id(), intentId);
+
+        insertPosting(
+                connection,
+                reservation.sourcePoolId(),
+                -reservation.sourceCents(),
+                swapId,
+                intentId
+        );
+        insertPosting(
+                connection,
+                reservation.destPoolId(),
+                reservation.destCents(),
+                swapId,
+                intentId
+        );
+
+        long sourcePosted = latestPosted(connection, reservation.sourcePoolId())
+                - reservation.sourceCents();
+        long destPosted = latestPosted(connection, reservation.destPoolId())
+                + reservation.destCents();
+        insertPostedTotal(connection, reservation.sourcePoolId(), intentId, sourcePosted);
+        insertPostedTotal(connection, reservation.destPoolId(), intentId, destPosted);
+
+        markReservation(connection, reservation.id(), "EXECUTED");
+        markDone(connection, intentId);
     }
 
-    ReleaseResult applyRelease(long intentId) throws SQLException {
-        try (Connection connection = Database.open()) {
-            connection.setAutoCommit(false);
-            takeBatchLock(connection, "release");
 
-            LoadedIntent loaded = lockIntent(connection, intentId);
-            if (!"pending".equals(loaded.status())) {
-                commitMoney(connection);
-                if ("done".equals(loaded.status())) {
-                    return loadReleaseResult(intentId, loaded.reservationId());
-                }
-                return new ReleaseResult(intentId, loaded.status(), loaded.reservationId());
-            }
-
-            ReservationRow peek = findReservation(connection, loaded.reservationId());
-            if (peek == null) {
-                markRejected(connection, intentId);
-                commitMoney(connection);
-                return new ReleaseResult(intentId, "rejected", loaded.reservationId());
-            }
-
-            lockExistingPoolById(connection, peek.sourcePoolId());
-            releaseExpired(connection, peek.sourcePoolId());
-
-            ReservationRow reservation = lockReservation(connection, loaded.reservationId());
-            if (reservation == null) {
-                markRejected(connection, intentId);
-                commitMoney(connection);
-                return new ReleaseResult(intentId, "rejected", loaded.reservationId());
-            }
-            if ("EXECUTED".equals(reservation.status())) {
-                markRejected(connection, intentId);
-                commitMoney(connection);
-                return new ReleaseResult(intentId, "rejected", reservation.id());
-            }
-            if ("RESERVED".equals(reservation.status())) {
-                markReservation(connection, reservation.id(), "RELEASED");
-            }
-            markDone(connection, intentId);
-            commitMoney(connection);
-            return new ReleaseResult(intentId, "done", reservation.id());
+    private void applyRelease(Connection connection, long intentId) throws SQLException {
+        LoadedIntent loaded = lockIntent(connection, intentId);
+        if (!"pending".equals(loaded.status())) {
+            return;
         }
+
+        ReservationRow peek = findReservation(connection, loaded.reservationId());
+        if (peek == null) {
+            markRejected(connection, intentId);
+            return;
+        }
+
+        lockExistingPoolById(connection, peek.sourcePoolId());
+        releaseExpired(connection, peek.sourcePoolId());
+
+        ReservationRow reservation = lockReservation(connection, loaded.reservationId());
+        if (reservation == null) {
+            markRejected(connection, intentId);
+            return;
+        }
+        if ("EXECUTED".equals(reservation.status())) {
+            markRejected(connection, intentId);
+            return;
+        }
+        if ("RESERVED".equals(reservation.status())) {
+            markReservation(connection, reservation.id(), "RELEASED");
+        }
+        markDone(connection, intentId);
     }
 
     private record ReservationRow(
@@ -899,21 +841,23 @@ public class Treasury {
 
     private static String awaitFinal(long intentId) throws SQLException {
         long deadline = System.nanoTime() + 1_000_000_000L;
-        while (true) {
-            String status = readStatus(intentId);
-            if ("done".equals(status) || "rejected".equals(status)) {
-                return status;
-            }
-            if (System.nanoTime() >= deadline) {
-                throw new IllegalStateException(
-                        "intent still pending after 1s: " + intentId
-                );
-            }
-            try {
-                Thread.sleep(10);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new SQLException("wait interrupted", e);
+        try (Connection connection = Database.open()) {
+            while (true) {
+                String status = readStatus(connection, intentId);
+                if ("done".equals(status) || "rejected".equals(status)) {
+                    return status;
+                }
+                if (System.nanoTime() >= deadline) {
+                    throw new IllegalStateException(
+                            "intent still pending after 1s: " + intentId
+                    );
+                }
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new SQLException("wait interrupted", e);
+                }
             }
         }
     }
@@ -921,8 +865,25 @@ public class Treasury {
     private void runBatch() {
         while (true) {
             try {
-                long intentId = wakeups.take();
-                applyOne(intentId);
+                long first = wakeups.take();
+                ArrayList<Long> batch = new ArrayList<>();
+                batch.add(first);
+                wakeups.drainTo(batch, BATCH_CAP - batch.size());
+
+                long deadline = System.nanoTime() + BATCH_WAIT_MS * 1_000_000L;
+                while (batch.size() < BATCH_CAP) {
+                    long remainingNs = deadline - System.nanoTime();
+                    if (remainingNs <= 0) {
+                        break;
+                    }
+                    Long next = wakeups.poll(remainingNs, TimeUnit.NANOSECONDS);
+                    if (next == null) {
+                        break;
+                    }
+                    batch.add(next);
+                    wakeups.drainTo(batch, BATCH_CAP - batch.size());
+                }
+                applyBatch(batch);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
@@ -932,22 +893,61 @@ public class Treasury {
         }
     }
 
-    private void applyOne(long intentId) throws SQLException {
-        String operation = readOperation(intentId);
+    private void applyBatch(List<Long> intentIds) throws SQLException {
+        long startedNs = System.nanoTime();
+        try (Connection connection = Database.open()) {
+            long connectedNs = System.nanoTime();
+            connection.setAutoCommit(false);
+            takeBatchLock(connection);
+            long lockedNs = System.nanoTime();
+            for (long intentId : intentIds) {
+                long oneStartNs = System.nanoTime();
+                try {
+                    applyOne(connection, intentId);
+                } finally {
+                    long oneNs = System.nanoTime() - oneStartNs;
+                    if (oneNs > 50_000_000L) {
+                        System.out.println(
+                                "slow intent " + intentId + " took " + ms(oneNs) + "ms"
+                        );
+                    }
+                }
+            }
+            long appliedNs = System.nanoTime();
+            commitMoney(connection, intentIds.size());
+            long committedNs = System.nanoTime();
+            System.out.println(
+                    "batch size=" + intentIds.size()
+                            + " connectMs=" + ms(connectedNs - startedNs)
+                            + " lockMs=" + ms(lockedNs - connectedNs)
+                            + " applyMs=" + ms(appliedNs - lockedNs)
+                            + " commitMs=" + ms(committedNs - appliedNs)
+                            + " totalMs=" + ms(committedNs - startedNs)
+            );
+        }
+    }
+
+    private static double ms(long nanos) {
+        return nanos / 1_000_000.0;
+    }
+
+    private void applyOne(Connection connection, long intentId) throws SQLException {
+        String operation = readOperation(connection, intentId);
         switch (operation) {
-            case "fund" -> applyFund(intentId);
-            case "reserve" -> applyReserve(intentId);
-            case "execute" -> applyExecute(intentId);
-            case "release" -> applyRelease(intentId);
+            case "fund" -> applyFund(connection, intentId);
+            case "reserve" -> applyReserve(connection, intentId);
+            case "execute" -> applyExecute(connection, intentId);
+            case "release" -> applyRelease(connection, intentId);
+            case null -> {
+            }
             default -> throw new IllegalStateException(
                     "unknown operation " + operation + " for intent " + intentId
             );
         }
     }
 
-    private static String readOperation(long intentId) throws SQLException {
-        try (Connection connection = Database.open();
-             PreparedStatement statement = connection.prepareStatement(
+    private static String readOperation(Connection connection, long intentId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
                      "SELECT operation FROM intents WHERE id = ?"
              )) {
             statement.setLong(1, intentId);
@@ -960,11 +960,10 @@ public class Treasury {
         }
     }
 
-    private static String readStatus(long intentId) throws SQLException {
-        try (Connection connection = Database.open();
-             PreparedStatement statement = connection.prepareStatement(
-                     "SELECT status FROM intents WHERE id = ?"
-             )) {
+    private static String readStatus(Connection connection, long intentId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT status FROM intents WHERE id = ?"
+        )) {
             statement.setLong(1, intentId);
             try (ResultSet rows = statement.executeQuery()) {
                 if (!rows.next()) {
