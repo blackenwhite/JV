@@ -4,12 +4,29 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class Treasury {
 
     static final long BATCH_LOCK_KEY = 1L;
 
     private final IntentStore intents = new IntentStore();
+
+    private final BlockingQueue<Long> wakeups = new LinkedBlockingQueue<>();
+
+    public Treasury() {
+        try {
+            for (Long id : intents.pendingIds()) {
+                wakeups.offer(id);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("failed to load pending intents", e);
+        }
+        Thread thread = new Thread(this::runBatch, "treasury-batch");
+        thread.setDaemon(true);
+        thread.start();
+    }
 
     /*
     Three outcomes:
@@ -23,7 +40,6 @@ public class Treasury {
   ├─────────────────────────┼──────────────────────────────────┼────────────────────────────────────┤
   │ pending                 │ New, or started but not finished │ Actually apply it now              │
   └─────────────────────────┴──────────────────────────────────┴────────────────────────────────────┘
-
     * */
     public FundResult fund(
             String callerId,
@@ -46,7 +62,7 @@ public class Treasury {
         if ("rejected".equals(intent.status())) {
             return new FundResult(intent.id(), intent.status(), 0L, 0L);
         }
-        runApply(() -> applyFund(intent.id()));
+        wakeups.offer(intent.id());
         String status = awaitFinal(intent.id());
         if ("done".equals(status)) {
             return loadFundResult(intent.id());
@@ -87,7 +103,7 @@ public class Treasury {
         if ("rejected".equals(intent.status())) {
             return new ReserveResult(intent.id(), intent.status(), 0L, 0L, 0L);
         }
-        runApply(() -> applyReserve(intent.id()));
+        wakeups.offer(intent.id());
         String status = awaitFinal(intent.id());
         if ("done".equals(status)) {
             return loadReserveResult(intent.id());
@@ -111,7 +127,7 @@ public class Treasury {
         if ("rejected".equals(intent.status())) {
             return new ExecuteResult(intent.id(), intent.status(), 0L);
         }
-        runApply(() -> applyExecute(intent.id()));
+        wakeups.offer(intent.id());
         String status = awaitFinal(intent.id());
         if ("done".equals(status)) {
             return loadExecuteResult(intent.id(), reservationId);
@@ -135,7 +151,7 @@ public class Treasury {
         if ("rejected".equals(intent.status())) {
             return new ReleaseResult(intent.id(), intent.status(), reservationId);
         }
-        runApply(() -> applyRelease(intent.id()));
+        wakeups.offer(intent.id());
         String status = awaitFinal(intent.id());
         if ("done".equals(status)) {
             return loadReleaseResult(intent.id(), reservationId);
@@ -858,17 +874,6 @@ public class Treasury {
         return new ReleaseResult(intentId, "done", reservationId);
     }
 
-    private static void runApply(SqlTask task) {
-        Thread thread = new Thread(() -> {
-            try {
-                task.run();
-            } catch (SQLException e) {
-                e.printStackTrace();
-            }
-        });
-        thread.start();
-    }
-
     private static String awaitFinal(long intentId) throws SQLException {
         long deadline = System.nanoTime() + 1_000_000_000L;
         while (true) {
@@ -886,6 +891,48 @@ public class Treasury {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new SQLException("wait interrupted", e);
+            }
+        }
+    }
+
+    private void runBatch() {
+        while (true) {
+            try {
+                long intentId = wakeups.take();
+                applyOne(intentId);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private void applyOne(long intentId) throws SQLException {
+        String operation = readOperation(intentId);
+        switch (operation) {
+            case "fund" -> applyFund(intentId);
+            case "reserve" -> applyReserve(intentId);
+            case "execute" -> applyExecute(intentId);
+            case "release" -> applyRelease(intentId);
+            default -> throw new IllegalStateException(
+                    "unknown operation " + operation + " for intent " + intentId
+            );
+        }
+    }
+
+    private static String readOperation(long intentId) throws SQLException {
+        try (Connection connection = Database.open();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT operation FROM intents WHERE id = ?"
+             )) {
+            statement.setLong(1, intentId);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    return null;
+                }
+                return rows.getString(1);
             }
         }
     }

@@ -8,6 +8,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Arrays;
+import java.util.List;
 
 public class IntentStore {
 
@@ -40,6 +41,24 @@ public class IntentStore {
                 throw new ArgumentMismatchException(callerId, callerKey);
             }
             return existing;
+        }
+    }
+
+    public java.util.List<Long> pendingIds() throws SQLException {
+        String sql = """
+            SELECT id
+            FROM intents
+            WHERE status = 'pending'
+            ORDER BY created_at, id
+            """;
+        try (Connection connection = Database.open();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet rows = statement.executeQuery()) {
+            List<Long> ids = new java.util.ArrayList<>();
+            while (rows.next()) {
+                ids.add(rows.getLong("id"));
+            }
+            return ids;
         }
     }
 
