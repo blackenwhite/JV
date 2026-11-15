@@ -46,7 +46,12 @@ public class Treasury {
         if ("rejected".equals(intent.status())) {
             return new FundResult(intent.id(), intent.status(), 0L, 0L);
         }
-        return applyFund(intent.id());
+        runApply(() -> applyFund(intent.id()));
+        String status = awaitFinal(intent.id());
+        if ("done".equals(status)) {
+            return loadFundResult(intent.id());
+        }
+        return new FundResult(intent.id(), status, 0L, 0L);
     }
 
     public ReserveResult reserve(
@@ -82,7 +87,12 @@ public class Treasury {
         if ("rejected".equals(intent.status())) {
             return new ReserveResult(intent.id(), intent.status(), 0L, 0L, 0L);
         }
-        return applyReserve(intent.id());
+        runApply(() -> applyReserve(intent.id()));
+        String status = awaitFinal(intent.id());
+        if ("done".equals(status)) {
+            return loadReserveResult(intent.id());
+        }
+        return new ReserveResult(intent.id(), status, 0L, 0L, 0L);
     }
 
     public ExecuteResult execute(
@@ -101,7 +111,12 @@ public class Treasury {
         if ("rejected".equals(intent.status())) {
             return new ExecuteResult(intent.id(), intent.status(), 0L);
         }
-        return applyExecute(intent.id());
+        runApply(() -> applyExecute(intent.id()));
+        String status = awaitFinal(intent.id());
+        if ("done".equals(status)) {
+            return loadExecuteResult(intent.id(), reservationId);
+        }
+        return new ExecuteResult(intent.id(), status, 0L);
     }
 
     public ReleaseResult release(
@@ -120,7 +135,12 @@ public class Treasury {
         if ("rejected".equals(intent.status())) {
             return new ReleaseResult(intent.id(), intent.status(), reservationId);
         }
-        return applyRelease(intent.id());
+        runApply(() -> applyRelease(intent.id()));
+        String status = awaitFinal(intent.id());
+        if ("done".equals(status)) {
+            return loadReleaseResult(intent.id(), reservationId);
+        }
+        return new ReleaseResult(intent.id(), status, reservationId);
     }
 
     FundResult applyFund(long intentId) throws SQLException {
@@ -838,7 +858,52 @@ public class Treasury {
         return new ReleaseResult(intentId, "done", reservationId);
     }
 
+    private static void runApply(SqlTask task) {
+        Thread thread = new Thread(() -> {
+            try {
+                task.run();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        });
+        thread.start();
+    }
 
+    private static String awaitFinal(long intentId) throws SQLException {
+        long deadline = System.nanoTime() + 1_000_000_000L;
+        while (true) {
+            String status = readStatus(intentId);
+            if ("done".equals(status) || "rejected".equals(status)) {
+                return status;
+            }
+            if (System.nanoTime() >= deadline) {
+                throw new IllegalStateException(
+                        "intent still pending after 1s: " + intentId
+                );
+            }
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new SQLException("wait interrupted", e);
+            }
+        }
+    }
+
+    private static String readStatus(long intentId) throws SQLException {
+        try (Connection connection = Database.open();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT status FROM intents WHERE id = ?"
+             )) {
+            statement.setLong(1, intentId);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    throw new IllegalStateException("intent not found: " + intentId);
+                }
+                return rows.getString(1);
+            }
+        }
+    }
 
     private record LoadedIntent(
             String status,
