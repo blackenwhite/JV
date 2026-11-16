@@ -11,7 +11,7 @@ public class BatchFillDemo {
     public static void main(String[] args) throws Exception {
         Treasury treasury = new Treasury();
 
-        for (int n : new int[]{1, 5, 10, 20}) {
+        for (int n : new int[]{40}) {
             String source = "MHS";
             String dest = "MHD";
 

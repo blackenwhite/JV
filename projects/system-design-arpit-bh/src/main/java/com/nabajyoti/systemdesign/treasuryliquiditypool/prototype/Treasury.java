@@ -864,9 +864,11 @@ public class Treasury {
 
     private void runBatch() {
         while (true) {
+            ArrayList<Long> batch = null;
+
             try {
                 long first = wakeups.take();
-                ArrayList<Long> batch = new ArrayList<>();
+                batch = new ArrayList<>();
                 batch.add(first);
                 wakeups.drainTo(batch, BATCH_CAP - batch.size());
 
@@ -876,20 +878,83 @@ public class Treasury {
                     if (remainingNs <= 0) {
                         break;
                     }
+
                     Long next = wakeups.poll(remainingNs, TimeUnit.NANOSECONDS);
                     if (next == null) {
                         break;
                     }
+
                     batch.add(next);
                     wakeups.drainTo(batch, BATCH_CAP - batch.size());
                 }
+
                 applyBatch(batch);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
-            } catch (SQLException e) {
+            } catch (SQLException | RuntimeException e) {
+                if (batch == null) {
+                    e.printStackTrace();
+                    return;
+                }
+
+                try {
+                    recoverBatch(batch, e);
+                } catch (SQLException | RuntimeException recoveryFailure) {
+                    recoveryFailure.printStackTrace();
+                    return;
+                }
+            }
+        }
+    }
+
+
+    private void recoverBatch(
+            List<Long> intentIds,
+            Exception batchFailure
+    ) throws SQLException {
+        ArrayList<Long> failed = new ArrayList<>();
+        int succeeded = 0;
+
+        System.out.println(
+                "batch failed; isolating " + intentIds.size() + " intents"
+        );
+
+        for (long intentId : intentIds) {
+            try {
+                applyBatch(List.of(intentId));
+                succeeded++;
+            } catch (SQLException | RuntimeException e) {
+                failed.add(intentId);
                 e.printStackTrace();
             }
+        }
+
+        if (succeeded == 0) {
+            throw new IllegalStateException(
+                    "every intent failed during isolation; leaving them pending",
+                    batchFailure
+            );
+        }
+
+        for (long intentId : failed) {
+            rejectWithoutMoney(intentId);
+        }
+    }
+
+    private static void rejectWithoutMoney(long intentId) throws SQLException {
+        try (Connection connection = Database.open();
+             PreparedStatement statement = connection.prepareStatement("""
+                 UPDATE intents
+                 SET status = 'rejected',
+                     finalized_at = now()
+                 WHERE id = ?
+                   AND status = 'pending'
+                 """)) {
+            connection.setAutoCommit(false);
+            statement.setLong(1, intentId);
+            statement.executeUpdate();
+            connection.commit();
         }
     }
 
