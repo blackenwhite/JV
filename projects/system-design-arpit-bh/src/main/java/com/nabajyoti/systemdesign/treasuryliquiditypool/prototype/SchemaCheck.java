@@ -14,7 +14,7 @@ public class SchemaCheck {
 
     public static void main(String[] args) throws Exception {
         try (Connection connection =
-                     DriverManager.getConnection(URL, USER, PASSWORD);
+                     Database.open();
              Statement statement = connection.createStatement();
              ResultSet tables = statement.executeQuery("""
                      SELECT tablename

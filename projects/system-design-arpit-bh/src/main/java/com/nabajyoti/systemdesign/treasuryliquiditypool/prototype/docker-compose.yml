@@ -2,6 +2,7 @@ services:
   treasury-postgres:
     image: postgres:17
     container_name: treasury-postgres
+    command: postgres -c idle_in_transaction_session_timeout=1s
     environment:
       POSTGRES_USER: treasury_user
       POSTGRES_PASSWORD: treasury_password
