@@ -23,4 +23,9 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+    ['kafka.integration', 'kafka.benchmark', 'kafka.bootstrap.servers'].each { key ->
+        if (System.getProperty(key) != null) {
+            systemProperty key, System.getProperty(key)
+        }
+    }
 }
