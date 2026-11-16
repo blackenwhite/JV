@@ -18,6 +18,7 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     implementation 'org.neo4j.driver:neo4j-java-driver:5.28.1'
     implementation 'redis.clients:jedis:5.2.0'
+    implementation 'org.apache.kafka:kafka-clients:3.9.1'
 }
 
 tasks.named('test') {
