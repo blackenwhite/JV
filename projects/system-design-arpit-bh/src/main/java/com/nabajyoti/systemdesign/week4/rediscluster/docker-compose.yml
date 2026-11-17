@@ -1,0 +1,98 @@
+services:
+  redis-7100:
+    image: redis:7.4
+    container_name: redis-7100
+    ports:
+      - "7100:6379"
+      - "17100:16379"
+    volumes:
+      - redis-7100-data:/data
+    command:
+      - redis-server
+      - --port
+      - "6379"
+      - --bind
+      - "0.0.0.0"
+      - --protected-mode
+      - "no"
+      - --appendonly
+      - "yes"
+      - --cluster-enabled
+      - "yes"
+      - --cluster-config-file
+      - nodes.conf
+      - --cluster-node-timeout
+      - "5000"
+      - --cluster-announce-ip
+      - "192.168.1.3"
+      - --cluster-announce-port
+      - "7100"
+      - --cluster-announce-bus-port
+      - "17100"
+
+  redis-7101:
+    image: redis:7.4
+    container_name: redis-7101
+    ports:
+      - "7101:6379"
+      - "17101:16379"
+    volumes:
+      - redis-7101-data:/data
+    command:
+      - redis-server
+      - --port
+      - "6379"
+      - --bind
+      - "0.0.0.0"
+      - --protected-mode
+      - "no"
+      - --appendonly
+      - "yes"
+      - --cluster-enabled
+      - "yes"
+      - --cluster-config-file
+      - nodes.conf
+      - --cluster-node-timeout
+      - "5000"
+      - --cluster-announce-ip
+      - "192.168.1.3"
+      - --cluster-announce-port
+      - "7101"
+      - --cluster-announce-bus-port
+      - "17101"
+
+  redis-7102:
+    image: redis:7.4
+    container_name: redis-7102
+    ports:
+      - "7102:6379"
+      - "17102:16379"
+    volumes:
+      - redis-7102-data:/data
+    command:
+      - redis-server
+      - --port
+      - "6379"
+      - --bind
+      - "0.0.0.0"
+      - --protected-mode
+      - "no"
+      - --appendonly
+      - "yes"
+      - --cluster-enabled
+      - "yes"
+      - --cluster-config-file
+      - nodes.conf
+      - --cluster-node-timeout
+      - "5000"
+      - --cluster-announce-ip
+      - "192.168.1.3"
+      - --cluster-announce-port
+      - "7102"
+      - --cluster-announce-bus-port
+      - "17102"
+
+volumes:
+  redis-7100-data:
+  redis-7101-data:
+  redis-7102-data:
