@@ -83,3 +83,9 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 
 - [Hashtag counter](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week4/hashtagcounter/) — five ways to count posts per hashtag: naive per-event writes, naive batching, deep-copy batching, two-map batching, and a Kafka adapter that re-ingests one record per post.
 - Kafka runs in Docker with 10 partitions keyed by `hash(postId) % 10`. A 10,000-post run with a 10 ms fake save shows 1,000 database writes instead of 105,000. `technical-details.md` in that package walks the steps and the numbers.
+
+
+## Redis cluster
+
+- [Redis cluster](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week4/rediscluster/) — three Redis 7 masters in Docker. The 16384 slots are split across them, and `JedisCluster` puts and gets a key. `locate` asks `CLUSTER KEYSLOT` and `CLUSTER SHARDS` for the slot and the master that owns it.
+- A hash tag such as `{user:42}` puts related keys on one master, so `MGET` works. Keys in different slots get `CROSSSLOT`. A plain client that asks the wrong master receives `MOVED`; `JedisCluster` follows that address and retries.
