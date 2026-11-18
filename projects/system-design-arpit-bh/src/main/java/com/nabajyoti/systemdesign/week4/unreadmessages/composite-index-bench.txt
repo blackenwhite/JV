@@ -1,0 +1,126 @@
+===== composite (recipient_id, conversation_id, read_at) =====
+indexes:
+idx_messages_rcp_conv_read 8072 kB
+messages_pkey 21 MB
+--- badge query (all three predicates) ---
+warmup plan:
+Aggregate  (cost=4.67..4.68 rows=1 width=8) (actual time=0.070..0.070 rows=1 loops=1)
+  Buffers: shared hit=4 read=3
+  ->  Index Only Scan using idx_messages_rcp_conv_read on messages  (cost=0.42..4.65 rows=10 width=0) (actual time=0.055..0.057 rows=10 loops=1)
+        Index Cond: ((recipient_id = 10) AND (conversation_id = 1) AND (read_at IS NULL))
+        Heap Fetches: 0
+        Buffers: shared hit=4 read=3
+Planning:
+  Buffers: shared hit=96 read=1
+Planning Time: 0.773 ms
+Execution Time: 0.126 ms
+run 1 execution_time_ms=0.078
+run 2 execution_time_ms=0.048
+run 3 execution_time_ms=0.054
+run 4 execution_time_ms=0.048
+run 5 execution_time_ms=0.125
+median_execution_time_ms=0.054
+
+--- recipient-wide query (no conversation_id) ---
+warmup plan:
+Aggregate  (cost=86.66..86.67 rows=1 width=8) (actual time=0.188..0.188 rows=1 loops=1)
+  Buffers: shared hit=7 read=5
+  ->  Index Only Scan using idx_messages_rcp_conv_read on messages  (cost=0.42..84.16 rows=1001 width=0) (actual time=0.023..0.146 rows=1000 loops=1)
+        Index Cond: ((recipient_id = 10) AND (read_at IS NULL))
+        Heap Fetches: 0
+        Buffers: shared hit=7 read=5
+Planning:
+  Buffers: shared hit=94
+Planning Time: 0.171 ms
+Execution Time: 0.215 ms
+run 1 execution_time_ms=0.172
+run 2 execution_time_ms=0.167
+run 3 execution_time_ms=0.221
+run 4 execution_time_ms=0.179
+run 5 execution_time_ms=0.164
+median_execution_time_ms=0.172
+
+===== composite (conversation_id, recipient_id, read_at) =====
+indexes:
+idx_messages_conv_rcp_read 8072 kB
+messages_pkey 21 MB
+--- badge query (all three predicates) ---
+warmup plan:
+Aggregate  (cost=4.70..4.71 rows=1 width=8) (actual time=0.053..0.053 rows=1 loops=1)
+  Buffers: shared hit=4 read=3
+  ->  Index Only Scan using idx_messages_conv_rcp_read on messages  (cost=0.42..4.67 rows=11 width=0) (actual time=0.048..0.048 rows=10 loops=1)
+        Index Cond: ((conversation_id = 1) AND (recipient_id = 10) AND (read_at IS NULL))
+        Heap Fetches: 0
+        Buffers: shared hit=4 read=3
+Planning:
+  Buffers: shared hit=96 read=1
+Planning Time: 0.210 ms
+Execution Time: 0.080 ms
+run 1 execution_time_ms=0.053
+run 2 execution_time_ms=0.053
+run 3 execution_time_ms=0.052
+run 4 execution_time_ms=0.048
+run 5 execution_time_ms=0.066
+median_execution_time_ms=0.053
+
+--- recipient-wide query (no conversation_id) ---
+warmup plan:
+Aggregate  (cost=14048.86..14048.87 rows=1 width=8) (actual time=4.594..4.594 rows=1 loops=1)
+  Buffers: shared hit=4 read=999
+  ->  Index Only Scan using idx_messages_conv_rcp_read on messages  (cost=0.42..14046.38 rows=995 width=0) (actual time=0.012..4.544 rows=1000 loops=1)
+        Index Cond: ((recipient_id = 10) AND (read_at IS NULL))
+        Heap Fetches: 0
+        Buffers: shared hit=4 read=999
+Planning:
+  Buffers: shared hit=97
+Planning Time: 0.156 ms
+Execution Time: 4.623 ms
+run 1 execution_time_ms=2.036
+run 2 execution_time_ms=2.073
+run 3 execution_time_ms=2.040
+run 4 execution_time_ms=2.609
+run 5 execution_time_ms=2.035
+median_execution_time_ms=2.040
+
+===== composite (read_at, recipient_id, conversation_id) =====
+indexes:
+idx_messages_read_rcp_conv 8192 kB
+messages_pkey 21 MB
+--- badge query (all three predicates) ---
+warmup plan:
+Aggregate  (cost=4.67..4.68 rows=1 width=8) (actual time=0.035..0.036 rows=1 loops=1)
+  Buffers: shared hit=4 read=3
+  ->  Index Only Scan using idx_messages_read_rcp_conv on messages  (cost=0.42..4.65 rows=10 width=0) (actual time=0.030..0.031 rows=10 loops=1)
+        Index Cond: ((read_at IS NULL) AND (recipient_id = 10) AND (conversation_id = 1))
+        Heap Fetches: 0
+        Buffers: shared hit=4 read=3
+Planning:
+  Buffers: shared hit=95 read=1
+Planning Time: 0.205 ms
+Execution Time: 0.061 ms
+run 1 execution_time_ms=0.049
+run 2 execution_time_ms=0.049
+run 3 execution_time_ms=0.052
+run 4 execution_time_ms=0.060
+run 5 execution_time_ms=0.051
+median_execution_time_ms=0.051
+
+--- recipient-wide query (no conversation_id) ---
+warmup plan:
+Aggregate  (cost=30.95..30.96 rows=1 width=8) (actual time=0.127..0.127 rows=1 loops=1)
+  Buffers: shared hit=7 read=1
+  ->  Index Only Scan using idx_messages_read_rcp_conv on messages  (cost=0.42..28.45 rows=1001 width=0) (actual time=0.023..0.086 rows=1000 loops=1)
+        Index Cond: ((read_at IS NULL) AND (recipient_id = 10))
+        Heap Fetches: 0
+        Buffers: shared hit=7 read=1
+Planning:
+  Buffers: shared hit=93
+Planning Time: 0.158 ms
+Execution Time: 0.154 ms
+run 1 execution_time_ms=0.150
+run 2 execution_time_ms=0.171
+run 3 execution_time_ms=0.155
+run 4 execution_time_ms=0.151
+run 5 execution_time_ms=0.149
+median_execution_time_ms=0.151
+
