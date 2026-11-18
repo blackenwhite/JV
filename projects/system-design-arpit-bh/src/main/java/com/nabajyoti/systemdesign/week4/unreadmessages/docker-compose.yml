@@ -1,0 +1,15 @@
+services:
+  unread-postgres:
+    image: postgres:17
+    container_name: unread-postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: pgdb
+    ports:
+      - "5435:5432"
+    volumes:
+      - unread-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  unread-postgres-data:
