@@ -89,3 +89,8 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 
 - [Redis cluster](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week4/rediscluster/) — three Redis 7 masters in Docker. The 16384 slots are split across them, and `JedisCluster` puts and gets a key. `locate` asks `CLUSTER KEYSLOT` and `CLUSTER SHARDS` for the slot and the master that owns it.
 - A hash tag such as `{user:42}` puts related keys on one master, so `MGET` works. Keys in different slots get `CROSSSLOT`. A plain client that asks the wrong master receives `MOVED`; `JedisCluster` follows that address and retries.
+
+## Unread message indicator
+
+- [Unread message indicator](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week4/unreadmessages/) — counts unread messages on the fly with `COUNT(*)` over a 1-million-row Postgres `messages` table, using `recipient_id`, `conversation_id`, and `read_at IS NULL`.
+- The lab compares no extra index, single-column indexes, and composite indexes (including column order). `findings.md` in that package records the plans and timings.
