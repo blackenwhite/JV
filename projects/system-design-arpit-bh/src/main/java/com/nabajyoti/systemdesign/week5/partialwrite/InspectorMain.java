@@ -1,0 +1,44 @@
+package com.nabajyoti.systemdesign.week5.partialwrite;
+
+import java.nio.file.Path;
+
+public final class InspectorMain {
+
+    private InspectorMain() {
+    }
+
+    public static void main(String[] args) throws Exception{
+        if(args.length != 1) {
+            System.out.println("Usage: InspectorMain <file>");
+            return;
+        }
+
+        Path file = Path.of(args[0]);
+
+        BlockInspection result = PartialWriteInspector.inspect(file);
+
+        long remainingBytes = result.fileSize() % BlockFormat.BLOCK_SIZE;
+
+        System.out.println(
+                "File size: "
+                        + result.fileSize()
+                        + " bytes"
+        );
+
+        System.out.println(
+                "Complete blocks: "
+                        + result.completeBlockCount()
+        );
+
+        System.out.println(
+                "Remaining bytes in final block: "
+                        + remainingBytes
+        );
+
+        System.out.println(
+                "Last block: "
+                        + result.lastBlockStatus()
+        );
+
+    }
+}
