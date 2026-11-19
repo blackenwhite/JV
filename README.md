@@ -94,3 +94,8 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 
 - [Unread message indicator](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week4/unreadmessages/) — counts unread messages on the fly with `COUNT(*)` over a 1-million-row Postgres `messages` table, using `recipient_id`, `conversation_id`, and `read_at IS NULL`.
 - The lab compares no extra index, single-column indexes, and composite indexes (including column order). `findings.md` in that package records the plans and timings.
+
+## Partial writes
+
+- [Partial write experiment](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week5/partialwrite/) — writes a 100 MiB file in 4 KiB blocks and inspects the file after the writer is terminated with `kill -9`.
+- The exercise compares plain writes, `force(true)` after every block, and synchronization every N blocks; `technical-details.md` documents the implementation and observations.

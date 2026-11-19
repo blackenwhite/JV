@@ -24,7 +24,7 @@ public final class WriterMain {
             case "plain" -> {
                 syncPolicy = SyncPolicy.plain();
             }
-            case "every block" -> {
+            case "every-block" -> {
                 syncPolicy = SyncPolicy.everyBlock();
             }
             case "every-n" -> {
