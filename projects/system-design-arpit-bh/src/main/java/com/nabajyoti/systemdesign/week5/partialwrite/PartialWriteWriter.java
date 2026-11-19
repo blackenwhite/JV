@@ -11,6 +11,7 @@ public final class PartialWriteWriter {
 
     public static final long DEFAULT_TOTAL_BYTES =
             100L * 1024 * 1024;
+    private final SyncPolicy syncPolicy;
 
     private final Path file;
     private final long totalBytes;
@@ -20,6 +21,15 @@ public final class PartialWriteWriter {
             Path file,
             long totalBytes,
             long delayMillis
+    ) {
+        this(file, totalBytes, delayMillis, SyncPolicy.plain());
+    }
+
+    public PartialWriteWriter(
+            Path file,
+            long totalBytes,
+            long delayMillis,
+            SyncPolicy syncPolicy
     ) {
         this.file = Objects.requireNonNull(file);
 
@@ -39,6 +49,7 @@ public final class PartialWriteWriter {
 
         this.totalBytes = totalBytes;
         this.delayMillis = delayMillis;
+        this.syncPolicy = Objects.requireNonNull(syncPolicy);
     }
 
     public void write() throws IOException, InterruptedException {
@@ -50,6 +61,8 @@ public final class PartialWriteWriter {
         )) {
             long blockCount =
                     totalBytes / BlockFormat.BLOCK_SIZE;
+
+            long blocksWritten = 0;
 
             for (long sequenceNumber = 0;
                  sequenceNumber < blockCount;
@@ -63,6 +76,12 @@ public final class PartialWriteWriter {
 
                 while (buffer.hasRemaining()) {
                     channel.write(buffer);
+                }
+
+                blocksWritten++;
+
+                if (syncPolicy.shouldForceAfter(blocksWritten)) {
+                    channel.force(true);
                 }
 
                 if (delayMillis > 0) {
