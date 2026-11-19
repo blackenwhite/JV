@@ -99,3 +99,8 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 
 - [Partial write experiment](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week5/partialwrite/) — writes a 100 MiB file in 4 KiB blocks and inspects the file after the writer is terminated with `kill -9`.
 - The exercise compares plain writes, `force(true)` after every block, and synchronization every N blocks; `technical-details.md` documents the implementation and observations.
+
+## Sequential vs random IO
+
+- [Sequential vs random IO benchmark](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week5/iorandom/) — writes and reads a 1 GiB file in 4 KiB blocks two ways: in order (sequential) and over shuffled offsets (random), then reports MB/s and ops/s.
+- The exercise shows that sequential IO is typically much faster than random IO for the same amount of data, which is why many storage systems prefer append-only logs over scattered in-place updates. `technical-details.md` in that package documents the setup and sample numbers.
