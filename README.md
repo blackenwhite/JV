@@ -104,3 +104,8 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 
 - [Sequential vs random IO benchmark](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week5/iorandom/) — writes and reads a 1 GiB file in 4 KiB blocks two ways: in order (sequential) and over shuffled offsets (random), then reports MB/s and ops/s.
 - The exercise shows that sequential IO is typically much faster than random IO for the same amount of data, which is why many storage systems prefer append-only logs over scattered in-place updates. `technical-details.md` in that package documents the setup and sample numbers.
+
+## Bitcask
+
+- [Bitcask key-value store](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week5/bitcask/) — a single-threaded append-only store: `put` writes a record to the active `data-<id>.log`, `get` follows an in-memory keydir, `delete` appends a tombstone, files roll over at a size limit, and startup replays logs (truncating a torn tail on the newest file).
+- `merge()` copies only live closed-file records into new files, then deletes the old closed files. `technical-details.md` in that package walks the record format, operations, and test command.

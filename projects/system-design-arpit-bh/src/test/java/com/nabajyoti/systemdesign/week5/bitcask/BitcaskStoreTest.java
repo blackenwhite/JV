@@ -409,6 +409,52 @@ class BitcaskStoreTest {
         }
     }
 
+    @Test
+    void putThenGetReturnsExactBinaryBytes() throws Exception {
+        byte[] binary = new byte[] {0x00, (byte) 0xFF, 0x0A, (byte) 0x80};
+
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("bin"), binary);
+
+            assertArrayEquals(binary, store.get(bytes("bin")).orElseThrow());
+        }
+    }
+
+    @Test
+    void lifecycleSurvivesRolloverMergeRestartAndALaterPut() throws Exception {
+        byte[] binary = new byte[] {0x00, (byte) 0xFF, 0x0A, (byte) 0x80};
+
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("bin"), binary);
+            store.put(bytes("city"), bytes("London"));
+            for (int i = 0; i < 15; i++) {
+                store.put(bytes("k" + i), filled((byte) 9, 100 * 1024));
+            }
+            store.put(bytes("city"), bytes("Paris"));
+            store.delete(bytes("k0"));
+            store.put(bytes("late"), bytes("x"));
+            store.merge();
+
+            assertArrayEquals(binary, store.get(bytes("bin")).orElseThrow());
+            assertArrayEquals(bytes("Paris"), store.get(bytes("city")).orElseThrow());
+            assertTrue(store.get(bytes("k0")).isEmpty());
+            assertArrayEquals(bytes("x"), store.get(bytes("late")).orElseThrow());
+        }
+
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            assertArrayEquals(binary, store.get(bytes("bin")).orElseThrow());
+            assertArrayEquals(bytes("Paris"), store.get(bytes("city")).orElseThrow());
+            assertTrue(store.get(bytes("k0")).isEmpty());
+            assertArrayEquals(bytes("x"), store.get(bytes("late")).orElseThrow());
+            store.put(bytes("after"), bytes("y"));
+        }
+
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            assertArrayEquals(bytes("y"), store.get(bytes("after")).orElseThrow());
+            assertArrayEquals(bytes("Paris"), store.get(bytes("city")).orElseThrow());
+        }
+    }
+
     private static Path newestDataLog(Path directory) throws IOException {
         List<Path> logs = dataLogs(directory);
         return logs.getLast();
