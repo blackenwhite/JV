@@ -66,6 +66,80 @@ class BitcaskStoreTest {
         }
     }
 
+    @Test
+    void overwriteMakesTheLatestValueWin() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("A"), bytes("one"));
+            store.put(bytes("A"), bytes("two"));
+
+            assertArrayEquals(bytes("two"), store.get(bytes("A")).orElseThrow());
+        }
+    }
+
+    @Test
+    void overwriteLeavesANeighborKeyUnchanged() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("city"), bytes("London"));
+            store.put(bytes("name"), bytes("Nabajyoti"));
+            store.put(bytes("city"), bytes("Paris"));
+
+            assertArrayEquals(bytes("Paris"), store.get(bytes("city")).orElseThrow());
+            assertArrayEquals(bytes("Nabajyoti"), store.get(bytes("name")).orElseThrow());
+        }
+    }
+
+    @Test
+    void overwriteWithAShorterValueDoesNotReturnStaleBytes() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("A"), bytes("a-longer-value"));
+            store.put(bytes("A"), bytes("x"));
+
+            assertArrayEquals(bytes("x"), store.get(bytes("A")).orElseThrow());
+        }
+    }
+
+    @Test
+    void deleteMakesGetReportMissing() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("city"), bytes("London"));
+            store.delete(bytes("city"));
+
+            assertTrue(store.get(bytes("city")).isEmpty());
+        }
+    }
+
+    @Test
+    void deleteLeavesANeighborKeyLive() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("city"), bytes("London"));
+            store.put(bytes("name"), bytes("Nabajyoti"));
+            store.delete(bytes("city"));
+
+            assertTrue(store.get(bytes("city")).isEmpty());
+            assertArrayEquals(bytes("Nabajyoti"), store.get(bytes("name")).orElseThrow());
+        }
+    }
+
+    @Test
+    void putAfterDeleteStoresTheNewValue() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("city"), bytes("London"));
+            store.delete(bytes("city"));
+            store.put(bytes("city"), bytes("Berlin"));
+
+            assertArrayEquals(bytes("Berlin"), store.get(bytes("city")).orElseThrow());
+        }
+    }
+
+    @Test
+    void deleteOfAMissingKeyIsANoOp() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.delete(bytes("city"));
+
+            assertTrue(store.get(bytes("city")).isEmpty());
+        }
+    }
+
     private static byte[] bytes(String text) {
         return text.getBytes(StandardCharsets.UTF_8);
     }

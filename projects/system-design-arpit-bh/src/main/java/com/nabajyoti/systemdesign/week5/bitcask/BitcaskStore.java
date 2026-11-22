@@ -5,7 +5,11 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 
 public final class BitcaskStore implements AutoCloseable {
     private static final int FIRST_FILE_ID = 1;
@@ -23,7 +27,7 @@ public final class BitcaskStore implements AutoCloseable {
 
     private BitcaskStore(Path directory, long fileSizeLimitBytes) throws IOException {
         Objects.requireNonNull(directory, "directory");
-        if(fileSizeLimitBytes <= 0) {
+        if (fileSizeLimitBytes <= 0) {
             throw new IllegalArgumentException("fileSizeLimitBytes must be positive");
         }
 
@@ -39,26 +43,15 @@ public final class BitcaskStore implements AutoCloseable {
         this.writePosition = activeChannel.size();
     }
 
-
     public void put(byte[] key, byte[] value) throws IOException {
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(value, "value");
-        if(value.length == 0) {
+        if (value.length == 0) {
             throw new IllegalArgumentException("value must not be empty");
         }
 
         byte[] encoded = RecordCodec.encode(key, value);
-        long recordStart = writePosition;
-        ByteBuffer buffer = ByteBuffer.wrap(encoded);
-        while(buffer.hasRemaining()) {
-            int written = activeChannel.write(buffer, recordStart+ buffer.position());
-            if(written <= 0) {
-                throw new IOException("failed to append record");
-            }
-        }
-
-        writePosition = recordStart + encoded.length;
-
+        long recordStart = append(encoded);
         long valueOffset = recordStart + RecordFormat.HEADER_BYTES + key.length;
         keydir.put(copyKey(key), new KeydirEntry(activeFileId, valueOffset, value.length));
     }
@@ -82,11 +75,33 @@ public final class BitcaskStore implements AutoCloseable {
         return Optional.of(value.array());
     }
 
+    public void delete(byte[] key) throws IOException {
+        Objects.requireNonNull(key, "key");
+        ByteBuffer mapKey = copyKey(key);
+        if (!keydir.containsKey(mapKey)) {
+            return;
+        }
 
+        append(RecordCodec.encodeTombstone(key));
+        keydir.remove(mapKey);
+    }
 
     @Override
     public void close() throws IOException {
         activeChannel.close();
+    }
+
+    private long append(byte[] encoded) throws IOException {
+        long recordStart = writePosition;
+        ByteBuffer buffer = ByteBuffer.wrap(encoded);
+        while (buffer.hasRemaining()) {
+            int written = activeChannel.write(buffer, recordStart + buffer.position());
+            if (written <= 0) {
+                throw new IOException("failed to append record");
+            }
+        }
+        writePosition = recordStart + encoded.length;
+        return recordStart;
     }
 
     private static ByteBuffer copyKey(byte[] key) {
