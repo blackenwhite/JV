@@ -14,10 +14,12 @@ import java.util.Optional;
 public final class BitcaskStore implements AutoCloseable {
     private static final int FIRST_FILE_ID = 1;
 
+    private final Path directory;
     private final long fileSizeLimitBytes;
     private final Map<ByteBuffer, KeydirEntry> keydir = new HashMap<>();
-    private final int activeFileId;
-    private final FileChannel activeChannel;
+    private final Map<Integer, FileChannel> files = new HashMap<>();
+    private int activeFileId;
+    private FileChannel activeChannel;
     private long writePosition;
 
     public static BitcaskStore open(Path directory, long fileSizeLimitBytes)
@@ -26,20 +28,13 @@ public final class BitcaskStore implements AutoCloseable {
     }
 
     private BitcaskStore(Path directory, long fileSizeLimitBytes) throws IOException {
-        Objects.requireNonNull(directory, "directory");
+        this.directory = Objects.requireNonNull(directory, "directory");
         if (fileSizeLimitBytes <= 0) {
             throw new IllegalArgumentException("fileSizeLimitBytes must be positive");
         }
-
         this.fileSizeLimitBytes = fileSizeLimitBytes;
         this.activeFileId = FIRST_FILE_ID;
-        Path activeFile = directory.resolve("data-" + activeFileId + ".log");
-        this.activeChannel = FileChannel.open(
-                activeFile,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.READ,
-                StandardOpenOption.WRITE
-        );
+        this.activeChannel = openFile(activeFileId);
         this.writePosition = activeChannel.size();
     }
 
@@ -48,6 +43,11 @@ public final class BitcaskStore implements AutoCloseable {
         Objects.requireNonNull(value, "value");
         if (value.length == 0) {
             throw new IllegalArgumentException("value must not be empty");
+        }
+
+        int encodedLength = RecordFormat.HEADER_BYTES + key.length + value.length;
+        if (encodedLength > fileSizeLimitBytes) {
+            throw new IllegalArgumentException("record larger than file size limit");
         }
 
         byte[] encoded = RecordCodec.encode(key, value);
@@ -63,10 +63,11 @@ public final class BitcaskStore implements AutoCloseable {
             return Optional.empty();
         }
 
+        FileChannel channel = files.get(entry.fileId());
         ByteBuffer value = ByteBuffer.allocate(entry.valueSize());
         long position = entry.valueOffset();
         while (value.hasRemaining()) {
-            int read = activeChannel.read(value, position);
+            int read = channel.read(value, position);
             if (read < 0) {
                 throw new IOException("unexpected end of file");
             }
@@ -88,10 +89,29 @@ public final class BitcaskStore implements AutoCloseable {
 
     @Override
     public void close() throws IOException {
-        activeChannel.close();
+        IOException firstError = null;
+        for (FileChannel channel : files.values()) {
+            try {
+                channel.close();
+            } catch (IOException error) {
+                if (firstError == null) {
+                    firstError = error;
+                } else {
+                    firstError.addSuppressed(error);
+                }
+            }
+        }
+        files.clear();
+        if (firstError != null) {
+            throw firstError;
+        }
     }
 
     private long append(byte[] encoded) throws IOException {
+        if (writePosition + encoded.length > fileSizeLimitBytes) {
+            rollOver();
+        }
+
         long recordStart = writePosition;
         ByteBuffer buffer = ByteBuffer.wrap(encoded);
         while (buffer.hasRemaining()) {
@@ -102,6 +122,23 @@ public final class BitcaskStore implements AutoCloseable {
         }
         writePosition = recordStart + encoded.length;
         return recordStart;
+    }
+
+    private void rollOver() throws IOException {
+        activeFileId++;
+        activeChannel = openFile(activeFileId);
+        writePosition = 0;
+    }
+
+    private FileChannel openFile(int fileId) throws IOException {
+        Path path = directory.resolve("data-" + fileId + ".log");
+        FileChannel channel = FileChannel.open(
+                path,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE);
+        files.put(fileId, channel);
+        return channel;
     }
 
     private static ByteBuffer copyKey(byte[] key) {
