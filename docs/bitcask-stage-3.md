@@ -67,6 +67,8 @@ Keeping `0` out of the field means a writer cannot produce a record that a later
 
 `put` rejects an empty value and reports an error to the caller. The store does not change. Rejecting is what keeps `value_size` away from `0`, so a stored value can never look like a tombstone.
 
+`put` also rejects a record whose encoded length is larger than the active file size limit. The encoded length is `8 + key + value`. The store does not change. A value of 2 MiB with a 1 MiB file limit is rejected. A value of exactly 1 MiB is also rejected, because the header and key need extra bytes.
+
 An overwrite of an existing key does the same thing. It appends a new record and moves the existing bookmark to the new location. Overwrite does not write a tombstone.
 
 The older bytes stay on disk. Nothing reads them, because the bookmark now points at the newer record. Merge is what removes them later.
@@ -118,6 +120,8 @@ get("city") does not find a bookmark
 ## Rollover
 
 The active file accepts appends until it reaches the size limit. The store then closes that file and opens a new active file. Later writes go to the new file.
+
+If the next record does not fit in the remaining space, and it would fit in an empty file, close the active file first, then append to a new active file. If the encoded record is larger than the file size limit, it would not fit in an empty file either, so `put` rejects it. Files stay at or under the limit. A record is never split across two files.
 
 ```text
 one keydir
@@ -259,7 +263,7 @@ Java `HashMap` drops the removed entry. The garbage collector can free that key 
 
 Part A is the basic store.
 
-- `put` appends and updates the one keydir. It rejects an empty value.
+- `put` appends and updates the one keydir. It rejects an empty value. It rejects a record larger than the file size limit.
 - `get` uses the keydir, then reads that value.
 - `delete` appends a tombstone and removes the key.
 - Rollover keeps older files immutable.
@@ -273,3 +277,13 @@ Part B is merge.
 - Merge reads closed files and leaves the active file alone.
 - It copies only records that the keydir still names at that exact location.
 - It updates the keydir, then deletes the old files.
+
+## Decision logs
+
+### 22 Nov 2026. Reject a record larger than the file size limit
+
+Do not accept a record whose encoded length is larger than the active file size limit. `put` reports an error. The store does not change.
+
+Rejected alternative: append anyway and let that file grow past the limit.
+
+The limit is the maximum size of one file. A record is one unit and cannot be split across files. Rollover into a new file does not help, because that file has the same limit. Rejecting keeps every data file at or under the limit.

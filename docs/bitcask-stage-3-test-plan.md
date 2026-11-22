@@ -8,13 +8,13 @@ Public APIs: `open`, `close`, `put`, `get`, `delete`, `merge`. A test may also l
 
 Rows marked **inferred** are not stated in the Stage 3 note. They are rules this plan assumes.
 
-Empty-value rejection and the startup truncation rule are now stated in the Stage 3 note. Null inputs, the two rollover rules, and the missing-path behavior are still assumptions.
+Empty-value rejection, oversize-record rejection, the fit-then-rollover rule, and the startup truncation rule are now stated in the Stage 3 note. Null inputs and the missing-path behavior are still assumptions.
 
 ## Rules this plan relies on
 
 - `put` rejects an empty value and reports an error. The store does not change.
 - `delete` of a key that is not live succeeds and is a no-op.
-- One record larger than the file size limit is accepted. That file may be larger than the limit.
+- `put` rejects a record whose encoded length is larger than the file size limit. The store does not change.
 - If the next record does not fit in the remaining space of the active file, and it would fit in an empty file, close the active file first, then append to a new active file.
 - `open` of a missing path fails. An existing empty directory succeeds.
 - Startup truncates the newest file to its last complete record before accepting writes. A partial tail in any other file fails startup.
@@ -35,7 +35,7 @@ Case ids are the ids in the previous draft of this plan.
 | PG08 | Drop | `get(null)` behavior is not in the Stage 3 note. |
 | PG09 | Keep, reshaped | Empty value is now rejected. Asserts the error and that a live key keeps its old value. |
 | PG10 | Drop | The Stage 3 note does not say what an empty key does, so no outcome is assertable. |
-| PG11 | Drop | Folded into RO05, which is the same large read plus the over-limit rule. |
+| PG11 | Drop | Folded into RO05, which is the oversize rejection. |
 | PG12 | Drop | 50 KB key is PG01 at a size that exposes nothing with a 4-byte length field. |
 | PG13 | Drop | PG14 covers byte exactness. UTF-8 adds cases only if keys are text. |
 | PG14 | Keep | `0x00`, `0xFF`, `0x0A`, `0x80` catch text-mode IO and sign extension. |
@@ -65,7 +65,7 @@ Case ids are the ids in the previous draft of this plan.
 | RO02 | Keep | Reads a value written before rollover and one written after. |
 | RO03 | Drop | Duplicate of RO02. |
 | RO04 | Drop | The late put is RO02's last value. |
-| RO05 | Keep | One record larger than the limit is accepted and read back whole. |
+| RO05 | Keep, reshaped | Oversize put reports an error. `get` does not find the key. |
 | RO06 | Drop | Absent key after rollover is PG04. |
 | RO07 | Drop | The exact-limit record still reads correctly. Only file layout differs. |
 | RO08 | Drop | 50 puts is RO02 at scale. |
@@ -142,7 +142,7 @@ Two cases read file layout, because no returned value can show the bug: MG01 che
 | id | api | input | expected |
 |---|---|---|---|
 | RO02 | put, get | fifteen ~100 KiB puts; `get` first and last | both values match |
-| RO05 | put, get | first put is 2 MiB, larger than the limit | put accepted; `get` returns the 2 MiB value |
+| RO05 | put, get | first put is 2 MiB, larger than the limit | put reports an error; `get("big")` not found |
 | RO09 | put, get | `"city"` written into a closed file; `put("city", "Paris")` | `"Paris"` |
 | RO10 | put, get, close, open | fill to about 200 KiB remaining; `put("big", 400 KiB)`; `put("late", "x")`; close; open | `"big"` and `"late"` both return; an earlier key is unchanged |
 
