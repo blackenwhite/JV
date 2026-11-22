@@ -246,4 +246,95 @@ public final class BitcaskStore implements AutoCloseable {
     private static ByteBuffer copyKey(byte[] key) {
         return ByteBuffer.wrap(Arrays.copyOf(key, key.length));
     }
+
+    public void merge() throws IOException{
+        List<Integer> closedFileIds = files.keySet().stream()
+                .filter(id -> id!=activeFileId)
+                .sorted()
+                .toList();
+        if(closedFileIds.isEmpty()) {
+            return;
+        }
+
+        Map<ByteBuffer, KeydirEntry> relocated = new HashMap<>();
+        int mergeFileId = 0;
+        FileChannel mergeChannel = null;
+        long mergePosition = 0;
+
+        for(int fileId : closedFileIds) {
+            FileChannel channel = files.get(fileId);
+            long size = channel.size();
+            long offset = 0;
+            while (offset < size) {
+                ByteBuffer header = ByteBuffer.allocate(RecordFormat.HEADER_BYTES);
+                readFully(channel, header, offset);
+                header.flip();
+
+                int keySize = header.getInt();
+                int valueSize = header.getInt();
+                boolean tombstone = valueSize == RecordFormat.TOMBSTONE_VALUE_SIZE;
+                long bodyLength = tombstone ? Integer.toUnsignedLong(keySize)
+                        : Integer.toUnsignedLong(keySize) + Integer.toUnsignedLong(valueSize);
+
+                ByteBuffer keyBuffer = ByteBuffer.allocate(keySize);
+                readFully(channel, keyBuffer, offset + RecordFormat.HEADER_BYTES);
+                byte[] key = keyBuffer.array();
+                long valueOffset = offset + RecordFormat.HEADER_BYTES + key.length;
+
+                KeydirEntry live = keydir.get(copyKey(key));
+                boolean copy = !tombstone
+                        && live!= null
+                        && live.fileId() == fileId
+                        && live.valueOffset() == valueOffset
+                        && live.valueSize() == valueSize;
+
+                if(copy) {
+                    ByteBuffer value = ByteBuffer.allocate(valueSize);
+                    readFully(channel, value, valueOffset);
+                    byte[] encoded = RecordCodec.encode(key, value.array());
+
+                    if(mergeChannel == null
+                    || mergePosition + encoded.length > fileSizeLimitBytes) {
+                        mergeFileId = nextFileId();
+                        mergeChannel = openFile(mergeFileId);
+                        mergePosition = 0;
+                    }
+
+                    ByteBuffer buffer = ByteBuffer.wrap(encoded);
+                    while (buffer.hasRemaining()) {
+                        int written = mergeChannel.write(
+                                buffer, mergePosition + buffer.position()
+                        );
+                        if(written <= 0) {
+                            throw new IOException("failed to append record");
+                        }
+                    }
+
+                    long newValueOffset =
+                            mergePosition + RecordFormat.HEADER_BYTES + key.length;
+                    relocated.put(copyKey(key), new KeydirEntry(mergeFileId, newValueOffset, valueSize));
+                    mergePosition += encoded.length;
+                }
+                offset += RecordFormat.HEADER_BYTES + bodyLength;
+            }
+        }
+
+        keydir.putAll(relocated);
+
+        for(int fileId : closedFileIds) {
+            FileChannel channel = files.remove(fileId);
+            channel.close();
+            Files.delete(directory.resolve("data-" + fileId + ".log"));
+        }
+    }
+
+    private int nextFileId() {
+        int max = 0;
+        for(int fileId : files.keySet()) {
+            if(fileId > max) {
+                max = fileId;
+            }
+        }
+        return max + 1;
+    }
 }

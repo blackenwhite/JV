@@ -14,9 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class BitcaskStoreTest {
 
@@ -306,6 +304,111 @@ class BitcaskStoreTest {
                 () -> BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES));
     }
 
+    @Test
+    void mergeDropsAStaleClosedOverwriteAndShrinksClosedFiles() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("city"), bytes("London"));
+            for (int i = 0; i < 15; i++) {
+                store.put(bytes("k" + i), filled((byte) 9, 100 * 1024));
+            }
+            store.put(bytes("city"), bytes("Paris"));
+            for (int i = 15; i < 30; i++) {
+                store.put(bytes("k" + i), filled((byte) 8, 100 * 1024));
+            }
+            for (int i = 0; i < 30; i++) {
+                store.delete(bytes("k" + i));
+            }
+
+            Path active = newestDataLog(directory);
+            List<Path> closedBefore = closedDataLogs(directory, active);
+            long closedBytesBefore = totalSize(closedBefore);
+
+            store.merge();
+
+            assertArrayEquals(bytes("Paris"), store.get(bytes("city")).orElseThrow());
+            assertTrue(Files.exists(active));
+            List<Path> closedAfter = closedDataLogs(directory, active);
+            assertTrue(closedAfter.size() < closedBefore.size());
+            assertTrue(totalSize(closedAfter) < closedBytesBefore);
+        }
+    }
+
+    @Test
+    void mergeRemovesClosedFilesWhenEveryClosedKeyWasDeleted() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("city"), bytes("London"));
+            for (int i = 0; i < 15; i++) {
+                store.put(bytes("k" + i), filled((byte) 9, 100 * 1024));
+            }
+            store.delete(bytes("city"));
+            for (int i = 0; i < 15; i++) {
+                store.delete(bytes("k" + i));
+            }
+
+            Path active = newestDataLog(directory);
+            store.merge();
+
+            assertTrue(store.get(bytes("city")).isEmpty());
+            assertTrue(store.get(bytes("k0")).isEmpty());
+            assertTrue(closedDataLogs(directory, active).isEmpty());
+        }
+    }
+
+    @Test
+    void mergeLeavesTheActiveFileAndItsLiveKey() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("early"), bytes("keep"));
+            for (int i = 0; i < 15; i++) {
+                store.put(bytes("k" + i), filled((byte) 9, 100 * 1024));
+            }
+            store.put(bytes("late"), bytes("x"));
+
+            Path active = newestDataLog(directory);
+            store.merge();
+
+            assertArrayEquals(bytes("keep"), store.get(bytes("early")).orElseThrow());
+            assertArrayEquals(bytes("x"), store.get(bytes("late")).orElseThrow());
+            assertTrue(Files.exists(active));
+        }
+    }
+
+    @Test
+    void mergeDoesNothingWhenThereAreNoClosedFiles() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("A"), bytes("one"));
+            store.put(bytes("A"), bytes("two"));
+
+            Path active = newestDataLog(directory);
+            long sizeBefore = Files.size(active);
+
+            store.merge();
+
+            assertEquals(sizeBefore, Files.size(active));
+            assertEquals(List.of(active), dataLogs(directory));
+            assertArrayEquals(bytes("two"), store.get(bytes("A")).orElseThrow());
+        }
+    }
+
+    @Test
+    void reopenAfterMergeReadsLiveKeysAndKeepsDeletesGone() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("early"), bytes("keep"));
+            for (int i = 0; i < 15; i++) {
+                store.put(bytes("k" + i), filled((byte) 9, 100 * 1024));
+            }
+            store.put(bytes("city"), bytes("London"));
+            store.delete(bytes("city"));
+            store.put(bytes("late"), bytes("x"));
+            store.merge();
+        }
+
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            assertArrayEquals(bytes("keep"), store.get(bytes("early")).orElseThrow());
+            assertArrayEquals(bytes("x"), store.get(bytes("late")).orElseThrow());
+            assertTrue(store.get(bytes("city")).isEmpty());
+        }
+    }
+
     private static Path newestDataLog(Path directory) throws IOException {
         List<Path> logs = dataLogs(directory);
         return logs.getLast();
@@ -338,5 +441,19 @@ class BitcaskStoreTest {
 
     private static byte[] bytes(String text) {
         return text.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static List<Path> closedDataLogs(Path directory, Path active) throws IOException {
+        return dataLogs(directory).stream()
+                .filter(path -> !path.equals(active))
+                .toList();
+    }
+
+    private static long totalSize(List<Path> paths) throws IOException {
+        long total = 0;
+        for (Path path : paths) {
+            total += Files.size(path);
+        }
+        return total;
     }
 }
