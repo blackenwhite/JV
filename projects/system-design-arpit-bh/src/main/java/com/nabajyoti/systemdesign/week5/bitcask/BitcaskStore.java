@@ -3,16 +3,22 @@ package com.nabajyoti.systemdesign.week5.bitcask;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 public final class BitcaskStore implements AutoCloseable {
     private static final int FIRST_FILE_ID = 1;
+    private static final Pattern DATA_FILE_NAME = Pattern.compile("data-(\\d+)\\.log");
 
     private final Path directory;
     private final long fileSizeLimitBytes;
@@ -33,9 +39,15 @@ public final class BitcaskStore implements AutoCloseable {
             throw new IllegalArgumentException("fileSizeLimitBytes must be positive");
         }
         this.fileSizeLimitBytes = fileSizeLimitBytes;
-        this.activeFileId = FIRST_FILE_ID;
-        this.activeChannel = openFile(activeFileId);
-        this.writePosition = activeChannel.size();
+        try {
+            recover();
+        } catch (IOException error) {
+            closeQuietly(error);
+            throw error;
+        } catch (RuntimeException error) {
+            closeQuietly(error);
+            throw error;
+        }
     }
 
     public void put(byte[] key, byte[] value) throws IOException {
@@ -65,14 +77,7 @@ public final class BitcaskStore implements AutoCloseable {
 
         FileChannel channel = files.get(entry.fileId());
         ByteBuffer value = ByteBuffer.allocate(entry.valueSize());
-        long position = entry.valueOffset();
-        while (value.hasRemaining()) {
-            int read = channel.read(value, position);
-            if (read < 0) {
-                throw new IOException("unexpected end of file");
-            }
-            position += read;
-        }
+        readFully(channel, value, entry.valueOffset());
         return Optional.of(value.array());
     }
 
@@ -107,6 +112,83 @@ public final class BitcaskStore implements AutoCloseable {
         }
     }
 
+    private void recover() throws IOException {
+        List<Integer> fileIds = listDataFileIds();
+        if (fileIds.isEmpty()) {
+            activeFileId = FIRST_FILE_ID;
+            activeChannel = openFile(activeFileId);
+            writePosition = 0;
+            return;
+        }
+
+        int newestFileId = fileIds.getLast();
+        for (int fileId : fileIds) {
+            FileChannel channel = openFile(fileId);
+            boolean newest = fileId == newestFileId;
+            long lastValidOffset = replayFile(fileId, channel, newest);
+            if (newest) {
+                channel.truncate(lastValidOffset);
+                activeFileId = fileId;
+                activeChannel = channel;
+                writePosition = lastValidOffset;
+            }
+        }
+    }
+
+    private List<Integer> listDataFileIds() throws IOException {
+        try (Stream<Path> entries = Files.list(directory)) {
+            return entries
+                    .map(path -> path.getFileName().toString())
+                    .map(DATA_FILE_NAME::matcher)
+                    .filter(Matcher::matches)
+                    .map(matcher -> Integer.parseInt(matcher.group(1)))
+                    .sorted()
+                    .toList();
+        }
+    }
+
+    private long replayFile(int fileId, FileChannel channel, boolean newest) throws IOException {
+        long size = channel.size();
+        long offset = 0;
+        while (offset < size) {
+            long remaining = size - offset;
+            if (remaining < RecordFormat.HEADER_BYTES) {
+                if (newest) {
+                    return offset;
+                }
+                throw new IOException("incomplete record in closed file " + fileId);
+            }
+
+            ByteBuffer header = ByteBuffer.allocate(RecordFormat.HEADER_BYTES);
+            readFully(channel, header, offset);
+            header.flip();
+            int keySize = header.getInt();
+            int valueSize = header.getInt();
+            boolean tombstone = valueSize == RecordFormat.TOMBSTONE_VALUE_SIZE;
+            long bodyLength = tombstone
+                    ? Integer.toUnsignedLong(keySize)
+                    : Integer.toUnsignedLong(keySize) + Integer.toUnsignedLong(valueSize);
+            if (remaining < RecordFormat.HEADER_BYTES + bodyLength) {
+                if (newest) {
+                    return offset;
+                }
+                throw new IOException("incomplete record in closed file " + fileId);
+            }
+
+            ByteBuffer keyBuffer = ByteBuffer.allocate(keySize);
+            readFully(channel, keyBuffer, offset + RecordFormat.HEADER_BYTES);
+            byte[] key = keyBuffer.array();
+            if (tombstone) {
+                keydir.remove(copyKey(key));
+            } else {
+                long valueOffset = offset + RecordFormat.HEADER_BYTES + key.length;
+                keydir.put(copyKey(key), new KeydirEntry(fileId, valueOffset, valueSize));
+            }
+            offset += RecordFormat.HEADER_BYTES + bodyLength;
+        }
+        return offset;
+    }
+
     private long append(byte[] encoded) throws IOException {
         if (writePosition + encoded.length > fileSizeLimitBytes) {
             rollOver();
@@ -139,6 +221,26 @@ public final class BitcaskStore implements AutoCloseable {
                 StandardOpenOption.WRITE);
         files.put(fileId, channel);
         return channel;
+    }
+
+    private void closeQuietly(Exception primary) {
+        try {
+            close();
+        } catch (IOException error) {
+            primary.addSuppressed(error);
+        }
+    }
+
+    private static void readFully(FileChannel channel, ByteBuffer buffer, long position)
+            throws IOException {
+        long readPosition = position;
+        while (buffer.hasRemaining()) {
+            int read = channel.read(buffer, readPosition);
+            if (read < 0) {
+                throw new IOException("unexpected end of file");
+            }
+            readPosition += read;
+        }
     }
 
     private static ByteBuffer copyKey(byte[] key) {
