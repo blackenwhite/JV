@@ -1,0 +1,17 @@
+use std::io::{self, BufRead};
+
+fn main() {
+    let stdin = io::stdin();
+    let mut line = String::new();
+    stdin.lock().read_line(&mut line).unwrap();
+
+    let mut parts = line.split_whitespace();
+    let a: i64 = parts.next().unwrap().parse().unwrap();
+    let b: i64 = parts.next().unwrap().parse().unwrap();
+
+    if (a * b) > 0 {
+        println!("Yes");
+    } else {
+        println!("No");
+    }
+}
