@@ -455,6 +455,91 @@ class BitcaskStoreTest {
         }
     }
 
+    @Test
+    void getReportsCorruptWhenAValueByteWasFlippedOnDisk() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("city"), bytes("London"));
+            store.put(bytes("name"), bytes("Nabajyoti"));
+
+            Path log = newestDataLog(directory);
+            byte[] contents = Files.readAllBytes(log);
+            contents[contents.length - 1] ^= 1;
+            Files.write(log, contents);
+
+            assertThrows(CorruptRecordException.class, () -> store.get(bytes("city")));
+            assertArrayEquals(bytes("Nabajyoti"), store.get(bytes("name")).orElseThrow());
+        }
+    }
+
+
+    @Test
+    void openFailsWhenAClosedFileHasACorruptRecord() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("first"), bytes("keep"));
+            for (int i = 0; i < 15; i++) {
+                store.put(bytes("k" + i), filled((byte) 9, 100 * 1024));
+            }
+            store.put(bytes("last"), bytes("x"));
+        }
+
+        Path closed = oldestDataLog(directory);
+        byte[] contents = Files.readAllBytes(closed);
+        int firstRecordLastByte =
+                RecordFormat.HEADER_BYTES + bytes("first").length + bytes("keep").length - 1;
+        contents[firstRecordLastByte] ^= 1;
+        Files.write(closed, contents);
+
+        assertThrows(
+                CorruptRecordException.class,
+                () -> BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES));
+    }
+
+    @Test
+    void reopenTruncatesACorruptLastRecordOnTheNewestFile() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("a"), bytes("one"));
+            store.put(bytes("b"), bytes("two"));
+        }
+
+        Path log = newestDataLog(directory);
+        byte[] contents = Files.readAllBytes(log);
+        contents[contents.length - 1] ^= 1;
+        Files.write(log, contents);
+
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            assertArrayEquals(bytes("one"), store.get(bytes("a")).orElseThrow());
+            assertTrue(store.get(bytes("b")).isEmpty());
+        }
+
+        int intactLength = RecordFormat.HEADER_BYTES + bytes("a").length + bytes("one").length;
+        assertEquals(intactLength, Files.size(newestDataLog(directory)));
+    }
+
+    @Test
+    void reopenTruncatesWhenTheNewestFileIsCutMidRecord() throws Exception {
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            store.put(bytes("a"), bytes("one"));
+            store.put(bytes("b"), bytes("two"));
+        }
+
+        Path log = newestDataLog(directory);
+        byte[] contents = Files.readAllBytes(log);
+        int firstRecordLength =
+                RecordFormat.HEADER_BYTES + bytes("a").length + bytes("one").length;
+        Files.write(log, Arrays.copyOf(contents, firstRecordLength + 5));
+
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            assertArrayEquals(bytes("one"), store.get(bytes("a")).orElseThrow());
+            assertTrue(store.get(bytes("b")).isEmpty());
+            store.put(bytes("c"), bytes("three"));
+        }
+
+        try (BitcaskStore store = BitcaskStore.open(directory, FILE_SIZE_LIMIT_BYTES)) {
+            assertArrayEquals(bytes("one"), store.get(bytes("a")).orElseThrow());
+            assertArrayEquals(bytes("three"), store.get(bytes("c")).orElseThrow());
+        }
+    }
+
     private static Path newestDataLog(Path directory) throws IOException {
         List<Path> logs = dataLogs(directory);
         return logs.getLast();

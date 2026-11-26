@@ -76,9 +76,12 @@ public final class BitcaskStore implements AutoCloseable {
         }
 
         FileChannel channel = files.get(entry.fileId());
-        ByteBuffer value = ByteBuffer.allocate(entry.valueSize());
-        readFully(channel, value, entry.valueOffset());
-        return Optional.of(value.array());
+        long recordStart = entry.valueOffset() - RecordFormat.HEADER_BYTES - key.length;
+        int recordLength = RecordFormat.HEADER_BYTES + key.length + entry.valueSize();
+        ByteBuffer record = ByteBuffer.allocate(recordLength);
+        readFully(channel, record, recordStart);
+        LogRecord decoded = RecordCodec.decode(record.array());
+        return Optional.of(decoded.value());
     }
 
     public void delete(byte[] key) throws IOException {
@@ -150,10 +153,10 @@ public final class BitcaskStore implements AutoCloseable {
     private long replayFile(int fileId, FileChannel channel, boolean newest) throws IOException {
         long size = channel.size();
         long offset = 0;
-        while (offset < size) {
-            long remaining = size - offset;
-            if (remaining < RecordFormat.HEADER_BYTES) {
-                if (newest) {
+        while(offset < size) {
+            long remaining  = size- offset;
+            if(remaining < RecordFormat.HEADER_BYTES) {
+                if(newest) {
                     return offset;
                 }
                 throw new IOException("incomplete record in closed file " + fileId);
@@ -165,27 +168,42 @@ public final class BitcaskStore implements AutoCloseable {
             header.getInt();
             int keySize = header.getInt();
             int valueSize = header.getInt();
+
             boolean tombstone = valueSize == RecordFormat.TOMBSTONE_VALUE_SIZE;
             long bodyLength = tombstone
                     ? Integer.toUnsignedLong(keySize)
                     : Integer.toUnsignedLong(keySize) + Integer.toUnsignedLong(valueSize);
-            if (remaining < RecordFormat.HEADER_BYTES + bodyLength) {
-                if (newest) {
+
+            if(remaining < RecordFormat.HEADER_BYTES + bodyLength) {
+                if(newest) {
                     return offset;
                 }
                 throw new IOException("incomplete record in closed file " + fileId);
             }
 
-            ByteBuffer keyBuffer = ByteBuffer.allocate(keySize);
-            readFully(channel, keyBuffer, offset + RecordFormat.HEADER_BYTES);
-            byte[] key = keyBuffer.array();
-            if (tombstone) {
-                keydir.remove(copyKey(key));
-            } else {
-                long valueOffset = offset + RecordFormat.HEADER_BYTES + key.length;
-                keydir.put(copyKey(key), new KeydirEntry(fileId, valueOffset, valueSize));
+            int recordLength = RecordFormat.HEADER_BYTES + (int) bodyLength;
+            ByteBuffer record = ByteBuffer.allocate(recordLength);
+            readFully(channel, record, offset);
+
+            LogRecord decoded;
+
+            try {
+                decoded = RecordCodec.decode(record.array());
+            } catch (CorruptRecordException error) {
+                if(newest && offset + recordLength == size) {
+                    return offset;
+                }
+                throw error;
             }
-            offset += RecordFormat.HEADER_BYTES + bodyLength;
+
+            if(decoded.tombstone()) {
+                keydir.remove(copyKey(decoded.key()));
+            } else {
+                long valueOffset = offset + RecordFormat.HEADER_BYTES + decoded.key().length;
+                keydir.put(copyKey(decoded.key()),
+                        new KeydirEntry(fileId, valueOffset, decoded.value().length));
+            }
+            offset += recordLength;
         }
         return offset;
     }
