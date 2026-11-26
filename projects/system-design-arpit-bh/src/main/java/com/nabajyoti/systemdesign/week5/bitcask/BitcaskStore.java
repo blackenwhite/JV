@@ -162,6 +162,7 @@ public final class BitcaskStore implements AutoCloseable {
             ByteBuffer header = ByteBuffer.allocate(RecordFormat.HEADER_BYTES);
             readFully(channel, header, offset);
             header.flip();
+            header.getInt();
             int keySize = header.getInt();
             int valueSize = header.getInt();
             boolean tombstone = valueSize == RecordFormat.TOMBSTONE_VALUE_SIZE;
@@ -269,6 +270,7 @@ public final class BitcaskStore implements AutoCloseable {
                 ByteBuffer header = ByteBuffer.allocate(RecordFormat.HEADER_BYTES);
                 readFully(channel, header, offset);
                 header.flip();
+                header.getInt();
 
                 int keySize = header.getInt();
                 int valueSize = header.getInt();

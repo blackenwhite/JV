@@ -1,6 +1,7 @@
 package com.nabajyoti.systemdesign.week5.bitcask;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 public final class RecordCodec {
 
@@ -8,26 +9,38 @@ public final class RecordCodec {
     }
 
     public static byte[] encode(byte[] key, byte[] value) {
-        ByteBuffer buffer = ByteBuffer.allocate(
-                RecordFormat.HEADER_BYTES + key.length + value.length);
-        buffer.putInt(key.length);
-        buffer.putInt(value.length);
-        buffer.put(key);
-        buffer.put(value);
-        return buffer.array();
+        ByteBuffer payload = ByteBuffer.allocate(
+                RecordFormat.KEY_SIZE_BYTES + RecordFormat.VALUE_SIZE_BYTES + key.length + value.length);
+        payload.putInt(key.length);
+        payload.putInt(value.length);
+        payload.put(key);
+        payload.put(value);
+        return withCrc(payload.array());
     }
-
     public static byte[] encodeTombstone(byte[] key) {
-        ByteBuffer buffer = ByteBuffer.allocate(
-                RecordFormat.HEADER_BYTES + key.length);
-        buffer.putInt(key.length);
-        buffer.putInt(RecordFormat.TOMBSTONE_VALUE_SIZE);
-        buffer.put(key);
+        ByteBuffer payload = ByteBuffer.allocate(
+                RecordFormat.KEY_SIZE_BYTES + RecordFormat.VALUE_SIZE_BYTES + key.length);
+        payload.putInt(key.length);
+        payload.putInt(RecordFormat.TOMBSTONE_VALUE_SIZE);
+        payload.put(key);
+        return withCrc(payload.array());
+    }
+    private static byte[] withCrc(byte[] payload) {
+        ByteBuffer buffer = ByteBuffer.allocate(RecordFormat.CRC_BYTES + payload.length);
+        buffer.putInt(RecordChecksum.crc32(payload));
+        buffer.put(payload);
         return buffer.array();
     }
 
-    public static LogRecord decode(byte[] bytes) {
+    public static LogRecord decode(byte[] bytes) throws CorruptRecordException {
         ByteBuffer buffer = ByteBuffer.wrap(bytes);
+        int storedCrc = buffer.getInt();
+
+        byte[] payload = Arrays.copyOfRange(bytes, RecordFormat.CRC_BYTES, bytes.length);
+        if (storedCrc != RecordChecksum.crc32(payload)) {
+            throw new CorruptRecordException("crc mismatch");
+        }
+
         int keySize = buffer.getInt();
         int valueSize = buffer.getInt();
 

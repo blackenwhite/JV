@@ -4,16 +4,14 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.zip.CRC32;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class RecordCodecTest {
 
     @Test
-    void encodesValueRecordAsKeySizeValueSizeKeyValue() {
+    void encodesValueRecordAsCrcThenKeySizeValueSizeKeyValue() throws Exception {
         byte[] key = "city".getBytes(StandardCharsets.UTF_8);
         byte[] value = "London".getBytes(StandardCharsets.UTF_8);
 
@@ -22,6 +20,7 @@ class RecordCodecTest {
         assertEquals(RecordFormat.HEADER_BYTES + key.length + value.length, encoded.length);
 
         ByteBuffer buffer = ByteBuffer.wrap(encoded);
+        int storedCrc = buffer.getInt();
         assertEquals(key.length, buffer.getInt());
         assertEquals(value.length, buffer.getInt());
 
@@ -35,6 +34,9 @@ class RecordCodecTest {
         byte[] encodedValue = new byte[value.length];
         buffer.get(encodedValue);
         assertArrayEquals(value, encodedValue);
+        assertEquals(0, buffer.remaining());
+
+        assertEquals(crc32AfterHeader(encoded), storedCrc);
 
         LogRecord decoded = RecordCodec.decode(encoded);
         assertFalse(decoded.tombstone());
@@ -43,7 +45,7 @@ class RecordCodecTest {
     }
 
     @Test
-    void encodesTombstoneWithSentinelSizeAndNoValueBytes() {
+    void encodesTombstoneWithCrcSentinelSizeAndNoValueBytes() throws Exception {
         byte[] key = "city".getBytes(StandardCharsets.UTF_8);
 
         byte[] encoded = RecordCodec.encodeTombstone(key);
@@ -51,6 +53,7 @@ class RecordCodecTest {
         assertEquals(RecordFormat.HEADER_BYTES + key.length, encoded.length);
 
         ByteBuffer buffer = ByteBuffer.wrap(encoded);
+        int storedCrc = buffer.getInt();
         assertEquals(key.length, buffer.getInt());
         assertEquals(RecordFormat.TOMBSTONE_VALUE_SIZE, buffer.getInt());
 
@@ -59,9 +62,26 @@ class RecordCodecTest {
         assertArrayEquals(key, encodedKey);
         assertEquals(0, buffer.remaining());
 
+        assertEquals(crc32AfterHeader(encoded), storedCrc);
+
         LogRecord decoded = RecordCodec.decode(encoded);
         assertTrue(decoded.tombstone());
         assertArrayEquals(key, decoded.key());
         assertEquals(0, decoded.value().length);
+    }
+
+    @Test
+    void decodeRejectsARecordWhenTheCrcDoesNotMatchThePayload() {
+        byte[] key = "city".getBytes(StandardCharsets.UTF_8);
+        byte[] value = "London".getBytes(StandardCharsets.UTF_8);
+        byte[] encoded = RecordCodec.encode(key, value);
+        encoded[encoded.length - 1] ^= 1;
+        assertThrows(CorruptRecordException.class, () -> RecordCodec.decode(encoded));
+    }
+
+    private static int crc32AfterHeader(byte[] encoded) {
+        CRC32 crc = new CRC32();
+        crc.update(encoded, RecordFormat.CRC_BYTES, encoded.length - RecordFormat.CRC_BYTES);
+        return (int) crc.getValue();
     }
 }
