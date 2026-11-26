@@ -1,13 +1,19 @@
+const DIGEST_SIZE: usize = 3;
+const FILL_VALUE: u8 = calculate_fill_value();
+
+const fn calculate_fill_value() -> u8 {
+    if DIGEST_SIZE < 10 { 42 } else { 13 }
+}
+
+fn compute_digest(text: &str) -> [u8; DIGEST_SIZE] {
+    let mut digest = [FILL_VALUE; DIGEST_SIZE];
+    for (idx, &b) in text.as_bytes().iter().enumerate() {
+        digest[idx % DIGEST_SIZE] = digest[idx % DIGEST_SIZE].wrapping_add(b);
+    }
+    digest
+}
+
 fn main() {
-    let s1: &str = "World";
-    println!("s1: {s1}");
-
-    let mut s2: String = String::from("Hello ");
-    println!("s2: {s2}");
-
-    s2.push_str(s1);
-    println!("s2:{s2}");
-
-    let s3: &str = &s2[2..9];
-    println!("s3: {s3}");
+    let digest = compute_digest("Hello");
+    println!("digest: {digest:?}");
 }

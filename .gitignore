@@ -14,3 +14,6 @@ docs/linkedin-host-manager-handoff.md
 docs/temp.txt
 
 target/
+
+*handoff.md
+*.zed
