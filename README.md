@@ -110,7 +110,7 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 - [Bitcask key-value store](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week5/bitcask/) — a single-threaded append-only store: `put` writes a record to the active `data-<id>.log`, `get` follows an in-memory keydir, `delete` appends a tombstone, files roll over at a size limit, and startup replays logs (truncating a torn tail on the newest file).
 - `merge()` copies only live closed-file records into new files, then deletes the old closed files. `technical-details.md` in that package walks the record format, operations, and test command.
 
-## Multi-threaded TCP
+## Multi-threaded TCP (RUST)
 
 - [Multi-threaded TCP servers](Rustom/system-design-arpit-bh/week5/multithreadedtcp) — three small Rust TCP servers that speak `ping`/`pong`: one connection on one thread, one OS thread per connection, and one thread with epoll for many connections.
 - The first two run with `cargo test` on this Mac. The epoll server is compiled and tested in a Linux Docker container because macOS has no epoll.
