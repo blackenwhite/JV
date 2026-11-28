@@ -21,3 +21,4 @@
 1. we will go ahead with Counting Bloom Filter only(and waste time on no other approaches), and that will help in making it deletable bloom filter later on
 2. (during deletion) we have to check the source of truth before deleting, so that false positives are not deleted
 3. a Counting filter uses 4 bits per slot, so it costs about 4× the memory of a standard filter for the same FPR. That is the price of being able to delete
+4. We use Rabin-Karp for the two hashes (31 with 1000000007, and 53 with 1000000009), then take seat i as (h1 + i * h2) mod m.
