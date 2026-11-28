@@ -9,4 +9,8 @@ public final class BloomTheory {
         }
         return 1.0 - Math.exp(-(double) k * n / m);
     }
+
+    public static double falsePositiveRate(int m, int k, int n) {
+        return Math.pow(fillRatio(m, k, n), k);
+    }
 }

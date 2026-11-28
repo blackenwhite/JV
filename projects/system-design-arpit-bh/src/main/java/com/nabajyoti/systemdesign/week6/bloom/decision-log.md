@@ -22,3 +22,6 @@
 2. (during deletion) we have to check the source of truth before deleting, so that false positives are not deleted
 3. a Counting filter uses 4 bits per slot, so it costs about 4× the memory of a standard filter for the same FPR. That is the price of being able to delete
 4. We use Rabin-Karp for the two hashes (31 with 1000000007, and 53 with 1000000009), then take seat i as (h1 + i * h2) mod m.
+5. In production the client deletes from the LSM (or other store) first. It calls the filter decrement only after that store delete succeeds. The filter does not query the source of truth. Doing that check inside the filter would be a redundant store round-trip and would couple the filter to the database. Decision 2 still holds as a system rule: never decrement slots for a key the store did not hold. The guard sits with the caller, not with a DB call from the filter.
+6. This prototype may still keep a local live-key map so tests can refuse a false-positive remove without standing up an LSM. That map stands in for "the caller already knew the key was present." It is not the filter calling a database.
+7. `counter`, `nonZeroSlots`, `slotSum`, and `snapshot` exist only so tests can read the slots. They are not part of the filter API. Each has a comment so a reviewer does not treat them as production methods.
