@@ -34,4 +34,14 @@ public final class CountingBloomFilter {
     int counter(int slot) {
         return slots[slot] & 0xff;
     }
+
+    int nonZeroSlots() {
+        int count = 0;
+        for (byte slot : slots) {
+            if (slot != 0) {
+                count++;
+            }
+        }
+        return count;
+    }
 }
