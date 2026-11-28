@@ -41,6 +41,12 @@ Add new projects under `projects/`, then include them in `settings.gradle`.
 - [Neo4j ingest and pagination](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week2/neo4j/) — lives under `system-design-arpit-bh` in `week2/neo4j` with Docker Compose and a Java driver demo. It batch-loads `Person` nodes and `FOLLOWS` edges, then pages one user’s follow list with offset (`SKIP`/`LIMIT`) and cursor-based queries so you can see the tradeoffs.
 - [DynamoDB on Postgres](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week2/dynamodb/) — one DynamoDB table is one Postgres table: partition key plus sort key as the primary key, other attributes in `jsonb`. Local and global secondary indexes are extra tables rewritten in the same transaction as the base item, so a customer query can sort by status and a warehouse query can span customers. Item APIs cover put, get, delete, query, and scan.
 
+## Counting Bloom filter
+
+- [Counting Bloom filter](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week6/bloom/) — a counting Bloom filter with configurable slot count `m` and hash count `k`, Rabin-Karp double hashing, and 4-bit counters (0 to 15) so a key can be deleted without introducing false negatives.
+- Experiments write FPR vs `m` and FPR vs `k` CSVs, measured against `(1 - e^(-kn/m))^k`. `technical-details.md` in `week6-bloom/` has the test command and `regenerate.sh` for the graphs.
+
+
 ## Two-phase commit
 
 - [In-memory two-phase commit](projects/system-design-arpit-bh/src/main/java/com/nabajyoti/systemdesign/week2/twoPC/) — a coordinator asks two accounts to prepare a transfer, records COMMIT or ABORT, then tells both accounts that decision.
